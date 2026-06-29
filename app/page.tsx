@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { CivicCase, GPSCoordinates, CaseStatus, CorroborationType, checkSilenceClockBreach, getGPSDistanceInMeters, findMatchingNearbyCase, routeToDepartment, calculateHarmScore } from '@/src/lib/civic/engine';
 import { loadCases, saveCases, mapIssueToCase } from '@/src/lib/store';
+import { BrandWordmark } from '@/src/components/BrandWordmark';
 
 // Web Audio API Synthesizer for tactile analog sound design (Moments 5.1, 5.2, 5.4)
 const playSound = (type: 'thup' | 'tick' | 'ding', isMuted: boolean) => {
@@ -864,8 +865,8 @@ export default function CivicProofApp() {
         {/* Upper Sidebar Brand & Navigation */}
         <div className="space-y-8">
           {/* Wordmark and neighborhood */}
-          <div className="space-y-1">
-            <span className="font-display font-black text-2xl tracking-tighter text-ink block">CIVICPROOF</span>
+          <div className="space-y-3">
+            <BrandWordmark />
             <span className="font-sans text-[10px] font-semibold px-2 py-0.5 bg-stamp text-paper rounded-sm uppercase tracking-wider inline-block">
               Indiranagar, BLR
             </span>
@@ -1529,9 +1530,9 @@ export default function CivicProofApp() {
                     </div>
                   </div>
 
-                  <div className="flex items-baseline gap-2 border-b-2 border-ink pb-4 mb-6">
-                    <h1 className="font-display font-black text-3xl tracking-tighter text-ink uppercase">CIVICPROOF</h1>
-                    <span className="font-mono text-xs font-bold text-chalk uppercase">Official Case File</span>
+                  <div className="flex items-end gap-3 border-b-2 border-ink pb-4 mb-6">
+                    <BrandWordmark className="scale-110 origin-left" />
+                    <span className="font-mono text-[10px] font-bold text-chalk uppercase mb-0.5">Official Case File</span>
                   </div>
 
                   <div className="space-y-6">
@@ -1654,9 +1655,9 @@ export default function CivicProofApp() {
             
             {/* 56px Header Wordmark (Section 7.1) */}
             <div className="h-14 flex justify-between items-center border-b border-ink pb-2">
-              <div className="flex items-baseline gap-2">
-                <span className="font-display font-black text-2xl tracking-tighter text-ink">CIVICPROOF</span>
-                <span className="font-sans text-xs font-semibold px-2 py-0.5 bg-stamp text-paper rounded-sm uppercase">Indiranagar, BLR</span>
+              <div className="flex items-end gap-3">
+                <BrandWordmark className="scale-90 origin-left" />
+                <span className="font-sans text-[10px] font-semibold px-2 py-0.5 bg-stamp text-paper rounded-sm uppercase mb-1">Indiranagar, BLR</span>
               </div>
               <button 
                 onClick={() => setSoundEnabled(!soundEnabled)} 
