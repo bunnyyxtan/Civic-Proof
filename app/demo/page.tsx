@@ -36,6 +36,7 @@ export default function JudgeDemoPage() {
   const [loadingChecks, setLoadingChecks] = useState<boolean>(true);
   const [seedLoading, setSeedLoading] = useState<boolean>(false);
   const [smokeLoading, setSmokeLoading] = useState<boolean>(false);
+  const [showDemoPacket, setShowDemoPacket] = useState<boolean>(false);
 
   // Fetch health data on mount
   const fetchDiagnostics = async () => {
@@ -419,9 +420,10 @@ if (isBreached && !case.escalationPacket) {
             <div>
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span className="font-mono text-xs tracking-wider uppercase text-neutral-400">Judge Presentation Lab</span>
+                <span className="font-mono text-xs tracking-wider uppercase text-neutral-400">Judge Demo Mode</span>
               </div>
               <h1 className="text-xl font-semibold tracking-tight">CivicProof Demo Simulator</h1>
+              <p className="text-[10px] text-neutral-500 mt-0.5">This demo is isolated from live citizen records.</p>
             </div>
           </div>
 
@@ -710,6 +712,17 @@ if (isBreached && !case.escalationPacket) {
                         <span>Compiled on behalf of the Indiranagar Resident Coalition</span>
                         <span>Status: ROUTED TO OFFICE</span>
                       </div>
+                      
+                      {activeStepData.id === 7 && (
+                        <div className="mt-4 flex justify-center">
+                          <button
+                            onClick={() => { setShowDemoPacket(true); playSound('stamp'); }}
+                            className="bg-black text-white px-4 py-2 text-xs font-bold uppercase rounded-md shadow hover:bg-neutral-800 transition flex items-center gap-2"
+                          >
+                            <FileText className="w-4 h-4" /> View Full Civic Proof Packet
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </motion.div>
@@ -1014,6 +1027,138 @@ if (isBreached && !case.escalationPacket) {
         </div>
 
       </div>
+
+      {/* Civic Proof Packet Modal for Demo */}
+      <AnimatePresence>
+        {showDemoPacket && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed inset-0 z-[100] bg-neutral-100 backdrop-blur-sm overflow-y-auto print:bg-white print:overflow-visible text-black"
+          >
+            <div className="max-w-2xl mx-auto p-4 md:p-8 min-h-screen flex flex-col print:p-0">
+              
+              <div className="flex justify-between items-center mb-6 print:hidden">
+                <button 
+                  onClick={() => { setShowDemoPacket(false); playSound('tick'); }}
+                  className="flex items-center gap-1 font-sans text-xs font-bold text-black hover:text-neutral-600 uppercase"
+                >
+                  <X className="w-4 h-4" /> Close
+                </button>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => {
+                      const content = `CIVIC CASE FILE: CP-2026-W38A1\nTitle: Blackwater Sewage Overflow\nStatus: ROUTED\nHarm Score: 89/100\nEvidence: 3 citizens verified.\nRoute: Bangalore Water Supply and Sewerage Board (BWSSB)\nURL: ${window.location.href}`;
+                      navigator.clipboard.writeText(content);
+                      alert("Packet summary copied to clipboard.");
+                    }}
+                    className="bg-white text-black border border-black py-2 px-3 text-xs font-bold uppercase hover:bg-neutral-100 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 flex items-center gap-1"
+                  >
+                    Copy Summary
+                  </button>
+                  <button 
+                    onClick={() => { window.print(); playSound('stamp'); }}
+                    className="bg-black text-white border border-black py-2 px-3 text-xs font-bold uppercase hover:bg-neutral-800 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 flex items-center gap-1"
+                  >
+                    Print / Save PDF
+                  </button>
+                </div>
+              </div>
+
+              <div id="civic-proof-document" className="bg-white border-2 border-black p-8 shadow-2xl relative font-sans print:shadow-none print:border-none print:p-0">
+                <div className="absolute top-8 right-8 border-4 border-black rounded-full w-24 h-24 flex items-center justify-center rotate-[-12deg] opacity-80 print:opacity-100">
+                  <div className="text-center">
+                    <div className="font-display font-black text-xl text-black leading-none">ROUTED</div>
+                    <div className="font-mono text-[8px] text-black font-bold tracking-widest mt-0.5">VERIFIED</div>
+                  </div>
+                </div>
+
+                <div className="flex items-baseline gap-2 border-b-2 border-black pb-4 mb-6">
+                  <h1 className="font-display font-black text-3xl tracking-tighter text-black uppercase">CIVICPROOF</h1>
+                  <span className="font-mono text-xs font-bold text-neutral-500 uppercase">Official Case File</span>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="grid grid-cols-2 gap-4 font-mono text-xs">
+                    <div>
+                      <div className="text-neutral-500 font-semibold">CASE IDENTIFIER</div>
+                      <div className="font-bold text-black text-sm">CP-2026-W38A1</div>
+                    </div>
+                    <div>
+                      <div className="text-neutral-500 font-semibold">GENERATED AT</div>
+                      <div className="font-bold text-black">{new Date().toLocaleString()}</div>
+                    </div>
+                    <div className="col-span-2">
+                      <div className="text-neutral-500 font-semibold">TARGET DEPARTMENT ROUTE</div>
+                      <div className="font-bold text-black text-sm bg-neutral-100 border border-black inline-block px-2 py-1 uppercase">Bangalore Water Supply and Sewerage Board (BWSSB)</div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h2 className="font-display font-bold text-lg border-b border-black/20 pb-1 mb-2 uppercase">Subject Matter</h2>
+                    <div className="font-bold text-xl leading-tight mb-2">Blackwater Sewage Overflow</div>
+                    <p className="text-sm leading-relaxed">Massive open drain overflowing right next to Saint Mary&apos;s School on 12th Main. Kids are having to step into traffic to bypass it.</p>
+                  </div>
+
+                  <div>
+                    <h2 className="font-display font-bold text-lg border-b border-black/20 pb-1 mb-2 uppercase">Risk & Harm Analysis</h2>
+                    <div className="flex items-center gap-4 mb-3">
+                      <div className="text-4xl font-display font-black text-black">89<span className="text-lg text-neutral-500">/100</span></div>
+                      <div className="text-xs text-neutral-500 max-w-xs leading-tight">Algorithmically assessed based on safety hazard, public impact, vulnerability factors, and duration.</div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                      <div className="flex justify-between border-b border-black/10 pb-1"><span>Safety Hazard</span> <strong>20/25</strong></div>
+                      <div className="flex justify-between border-b border-black/10 pb-1"><span>Public Impact</span> <strong>22/25</strong></div>
+                      <div className="flex justify-between border-b border-black/10 pb-1"><span>Vulnerability</span> <strong>25/25</strong></div>
+                      <div className="flex justify-between border-b border-black/10 pb-1"><span>Duration</span> <strong>22/25</strong></div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h2 className="font-display font-bold text-lg border-b border-black/20 pb-1 mb-2 uppercase">Verified Evidence</h2>
+                    <div className="mb-2 text-sm">
+                      <span className="font-bold">4</span> citizens have filed verified geo-tagged proof regarding this specific location.
+                    </div>
+                    <div className="flex gap-4">
+                      <div className="w-1/3">
+                        <img src="https://picsum.photos/seed/sewage/400/300" alt="Initial proof" className="w-full h-32 object-cover border border-black grayscale print:grayscale-0" />
+                        <div className="text-[9px] font-mono mt-1">INITIAL PROOF</div>
+                      </div>
+                      <div className="flex-1 font-mono text-[10px] space-y-1">
+                        <div className="bg-black/5 p-1.5 border border-black/20">
+                          <strong>Location:</strong> 12.97160, 77.64120
+                        </div>
+                        <div className="bg-black/5 p-1.5 border border-black/20">
+                          <strong>Reported:</strong> 2026-06-18 10:00:00
+                        </div>
+                        <div className="bg-black/5 p-1.5 border border-black/20 flex justify-between">
+                          <strong>Corroborations:</strong> 3 distinct matching events
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 space-y-4">
+                    <div>
+                      <div className="text-[10px] font-mono font-bold uppercase mb-1">Attached: Formal Complaint Packet</div>
+                      <div className="border border-black/30 bg-black/5 p-3 text-[10px] font-mono whitespace-pre-wrap">
+                        We formally represent 3 residents regarding a hazardous open storm water drain adjacent to Saint Mary&apos;s School on 12th Main Road, Indiranagar. Immediate structural risk has been evaluated as CRITICAL (Harm Score: 89/100). Find attached: GPS Evidence links, time series logs, and photographic transcripts.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-center pt-8 border-t border-black/20 font-sans text-[9px] text-neutral-500">
+                    END OF CIVICPROOF CASE FILE. CRYPTOGRAPHICALLY SECURED ON PUBLIC LEDGER.
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     </main>
   );
 }

@@ -11,7 +11,7 @@ import {
   MapPin, Camera, Mic, Volume2, Globe, Heart, FileText, CheckCircle, 
   AlertTriangle, ArrowRight, User, Home, ShieldAlert, Sparkles, X, 
   Plus, Info, ChevronUp, Trash2, Sun, Moon, VolumeX, Shield, Clock,
-  ArrowLeft, Share2, Printer, Check, Radio, AlertCircle
+  ArrowLeft, Share2, Printer, Check, Radio, AlertCircle, Copy
 } from 'lucide-react';
 import { CivicCase, GPSCoordinates, CaseStatus, CorroborationType, checkSilenceClockBreach, getGPSDistanceInMeters, findMatchingNearbyCase, routeToDepartment, calculateHarmScore } from '@/src/lib/civic/engine';
 import { loadCases, saveCases, resetCasesStorage, mapIssueToCase } from '@/src/lib/store';
@@ -136,6 +136,8 @@ export default function CivicProofApp() {
   const [mapFilter, setMapFilter] = useState<'all' | 'active' | 'resolved' | 'breached' | 'mine'>('all');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
+  const [storageUnavailable, setStorageUnavailable] = useState(false);
+  const [showProofPacket, setShowProofPacket] = useState(false);
 
   // Load cases on mount asynchronously to prevent hydration mismatch and satisfy linter
   useEffect(() => {
@@ -147,18 +149,23 @@ export default function CivicProofApp() {
         const data = await res.json();
 
         if (active && data.success && Array.isArray(data.cases)) {
+          setStorageUnavailable(false);
           if (data.cases.length === 0) {
             // Auto seed the database if empty for the first time
             const seedRes = await fetch("/api/demo/seed-cases", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ overwrite: false })
+              body: JSON.stringify({ allow_seed_emergency: true, overwrite: false })
             });
             const seedData = await seedRes.json();
-            if (seedData.success && Array.isArray(seedData.cases)) {
-              const mapped = seedData.cases.map(mapIssueToCase);
-              setCases(mapped);
-              return;
+            if (seedData.success) {
+              const res2 = await fetch("/api/cases");
+              const data2 = await res2.json();
+              if (data2.success && Array.isArray(data2.cases)) {
+                 const mapped = data2.cases.map(mapIssueToCase);
+                 setCases(mapped);
+                 return;
+              }
             }
           }
 
@@ -168,6 +175,9 @@ export default function CivicProofApp() {
         }
       } catch (err) {
         console.error("Failed to fetch cases from API. Falling back to local storage.", err);
+        if (active) {
+          setStorageUnavailable(true);
+        }
       }
 
       // Fallback to offline localStorage if API is patchy
@@ -187,6 +197,7 @@ export default function CivicProofApp() {
   const [captureStep, setCaptureStep] = useState<number>(1); // 1: Camera/Preset Select, 2: Reveal, 3: Stamp, 4: Confirmed
   const [selectedPresetIndex, setSelectedPresetIndex] = useState<number>(0);
   const [customPhoto, setCustomPhoto] = useState<string | null>(null);
+  const [manualCategory, setManualCategory] = useState<string>('auto-detect');
   const [voiceNotes, setVoiceNotes] = useState<string>("");
   const [isRecording, setIsRecording] = useState(false);
   const [voiceMode, setVoiceMode] = useState<'hi-IN' | 'en-IN' | 'mixed-IN'>('mixed-IN');
@@ -448,7 +459,8 @@ export default function CivicProofApp() {
           userNotes: targetNotes,
           gps: gpsData,
           isVulnerable: isVulnerableArea,
-          voiceMode: voiceCapturedMode || undefined
+          voiceMode: voiceCapturedMode || undefined,
+          manualCategory: manualCategory === 'auto-detect' ? undefined : manualCategory
         })
       });
 
@@ -1040,6 +1052,9 @@ export default function CivicProofApp() {
                       <p className="font-sans text-xs text-paper/90 mt-1">
                         SLA timeline expired. Designated authority has neglected this incident. Citizen Escalation protocol is now eligible.
                       </p>
+                      <p className="font-sans text-[10px] text-paper/70 italic mt-1">
+                        Every unresolved day is logged permanently on the public timeline.
+                      </p>
                     </div>
                   </div>
                 )}
@@ -1423,9 +1438,185 @@ export default function CivicProofApp() {
                   </div>
                 )}
 
+                {/* Civic Proof Packet Generator Button */}
+                <div className="pt-2 pb-2">
+                  <button
+                    onClick={() => { setShowProofPacket(true); triggerSound('tick'); }}
+                    className="w-full bg-paper text-ink border-2 border-ink py-3 font-sans text-sm font-bold uppercase hover:bg-ink/[0.04] stamp-shadow active:translate-y-0.5 flex justify-center items-center gap-2"
+                  >
+                    <FileText className="w-4 h-4" /> Generate Civic Proof Packet
+                  </button>
+                </div>
+
                 {/* Footer disclaimer (Section 7.4 bottom) */}
                 <div className="text-center text-[10px] text-chalk border-t border-ink/10 pt-4">
                   ALL TIMESTAMPS AND CORROBORATIONS SECURED UNDER CITIZEN PHYSICAL RECORD. CIVICPROOF PROTOCOLS COMPLIANT WITH INJUNCTION CODES.
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Civic Proof Packet Modal */}
+        <AnimatePresence>
+          {showProofPacket && selectedCase && (
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="fixed inset-0 z-[100] bg-paper/95 backdrop-blur-sm overflow-y-auto print:bg-white print:overflow-visible"
+            >
+              <div className="max-w-2xl mx-auto p-4 md:p-8 min-h-screen flex flex-col print:p-0">
+                
+                {/* Print Controls - Hidden in print */}
+                <div className="flex justify-between items-center mb-6 print:hidden">
+                  <button 
+                    onClick={() => { setShowProofPacket(false); triggerSound('tick'); }}
+                    className="flex items-center gap-1 font-sans text-xs font-bold text-ink hover:text-stamp uppercase"
+                  >
+                    <X className="w-4 h-4" /> Close
+                  </button>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => {
+                        const content = `CIVIC CASE FILE: ${selectedCase.id}\nTitle: ${selectedCase.title}\nStatus: ${selectedCase.status}\nHarm Score: ${selectedCase.harmScore}/100\nEvidence: ${selectedCase.corroborations.length + 1} citizens verified.\nRoute: ${selectedCase.department}\nURL: ${window.location.href}`;
+                        navigator.clipboard.writeText(content);
+                        triggerToast("Packet summary copied to clipboard.", "tally");
+                      }}
+                      className="bg-paper text-ink border border-ink py-2 px-3 text-xs font-bold uppercase hover:bg-ink/[0.04] stamp-shadow active:translate-y-0.5 flex items-center gap-1"
+                    >
+                      <Copy className="w-3.5 h-3.5" /> Copy Summary
+                    </button>
+                    <button 
+                      onClick={() => { window.print(); triggerSound('thup'); }}
+                      className="bg-stamp text-paper border border-ink py-2 px-3 text-xs font-bold uppercase hover:bg-stamp/90 stamp-shadow active:translate-y-0.5 flex items-center gap-1"
+                    >
+                      <Printer className="w-3.5 h-3.5" /> Print / Save PDF
+                    </button>
+                  </div>
+                </div>
+
+                {/* The Formal Document */}
+                <div id="civic-proof-document" className="bg-white border-2 border-ink p-8 shadow-2xl relative font-sans print:shadow-none print:border-none print:p-0">
+                  
+                  <div className="absolute top-8 right-8 border-4 border-stamp rounded-full w-24 h-24 flex items-center justify-center rotate-[-12deg] opacity-80 print:opacity-100">
+                    <div className="text-center">
+                      <div className="font-display font-black text-xl text-stamp leading-none">{selectedCase.status}</div>
+                      <div className="font-mono text-[8px] text-stamp font-bold tracking-widest mt-0.5">VERIFIED</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-baseline gap-2 border-b-2 border-ink pb-4 mb-6">
+                    <h1 className="font-display font-black text-3xl tracking-tighter text-ink uppercase">CIVICPROOF</h1>
+                    <span className="font-mono text-xs font-bold text-chalk uppercase">Official Case File</span>
+                  </div>
+
+                  <div className="space-y-6">
+                    
+                    {/* Header Metadata */}
+                    <div className="grid grid-cols-2 gap-4 font-mono text-xs">
+                      <div>
+                        <div className="text-chalk font-semibold">CASE IDENTIFIER</div>
+                        <div className="font-bold text-ink text-sm">{selectedCase.id}</div>
+                      </div>
+                      <div>
+                        <div className="text-chalk font-semibold">GENERATED AT</div>
+                        <div className="font-bold text-ink">{new Date().toLocaleString()}</div>
+                      </div>
+                      <div className="col-span-2">
+                        <div className="text-chalk font-semibold">TARGET DEPARTMENT ROUTE</div>
+                        <div className="font-bold text-ink text-sm bg-tally/10 border border-tally inline-block px-2 py-1 uppercase">{selectedCase.department}</div>
+                      </div>
+                    </div>
+
+                    {/* Issue Description */}
+                    <div>
+                      <h2 className="font-display font-bold text-lg border-b border-ink/20 pb-1 mb-2 uppercase">Subject Matter</h2>
+                      <div className="font-bold text-xl leading-tight mb-2">{selectedCase.title}</div>
+                      <p className="text-sm leading-relaxed">{selectedCase.description}</p>
+                    </div>
+
+                    {/* Harm Analysis */}
+                    <div>
+                      <h2 className="font-display font-bold text-lg border-b border-ink/20 pb-1 mb-2 uppercase">Risk & Harm Analysis</h2>
+                      <div className="flex items-center gap-4 mb-3">
+                        <div className="text-4xl font-display font-black text-stamp">{selectedCase.harmScore}<span className="text-lg text-chalk">/100</span></div>
+                        <div className="text-xs text-chalk max-w-xs leading-tight">Algorithmically assessed based on safety hazard, public impact, vulnerability factors, and duration.</div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                        <div className="flex justify-between border-b border-ink/10 pb-1"><span>Safety Hazard</span> <strong>{selectedCase.harmScoreBreakdown.safetyHazard}/25</strong></div>
+                        <div className="flex justify-between border-b border-ink/10 pb-1"><span>Public Impact</span> <strong>{selectedCase.harmScoreBreakdown.publicImpact}/25</strong></div>
+                        <div className="flex justify-between border-b border-ink/10 pb-1"><span>Vulnerability</span> <strong>{selectedCase.harmScoreBreakdown.vulnerabilityFactor}/25</strong></div>
+                        <div className="flex justify-between border-b border-ink/10 pb-1"><span>Duration</span> <strong>{selectedCase.harmScoreBreakdown.durationFactor}/25</strong></div>
+                      </div>
+                    </div>
+
+                    {/* Evidence & Corroboration */}
+                    <div>
+                      <h2 className="font-display font-bold text-lg border-b border-ink/20 pb-1 mb-2 uppercase">Verified Evidence</h2>
+                      <div className="mb-2 text-sm">
+                        <span className="font-bold">{selectedCase.corroborations.length + 1}</span> citizens have filed verified geo-tagged proof regarding this specific location.
+                      </div>
+                      <div className="flex gap-4">
+                        <div className="w-1/3">
+                          <img src={selectedCase.photoUrl} alt="Initial proof" className="w-full h-32 object-cover border border-ink grayscale print:grayscale-0" />
+                          <div className="text-[9px] font-mono mt-1">INITIAL PROOF</div>
+                        </div>
+                        <div className="flex-1 font-mono text-[10px] space-y-1">
+                          <div className="bg-ink/5 p-1.5 border border-ink/20">
+                            <strong>Location:</strong> {selectedCase.gps.latitude.toFixed(5)}, {selectedCase.gps.longitude.toFixed(5)}
+                          </div>
+                          <div className="bg-ink/5 p-1.5 border border-ink/20">
+                            <strong>Reported:</strong> {new Date(selectedCase.filedAt).toLocaleString()}
+                          </div>
+                          <div className="bg-ink/5 p-1.5 border border-ink/20 flex justify-between">
+                            <strong>Corroborations:</strong> {selectedCase.corroborations.length} distinct matching events
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Silence Clock / Accountability */}
+                    {selectedCase.status !== 'RESOLVED' && (
+                      <div>
+                        <h2 className="font-display font-bold text-lg border-b border-ink/20 pb-1 mb-2 uppercase">Public Accountability Timeline</h2>
+                        <div className="bg-breach/10 border border-breach p-3 text-sm flex justify-between items-center">
+                          <div>
+                            <div className="font-bold text-breach">SILENCE CLOCK ACTIVE</div>
+                            <div className="text-xs text-ink/80">Time elapsed since formal routing with no resolution</div>
+                          </div>
+                          <div className="font-display font-bold text-xl text-breach">
+                            {checkSilenceClockBreach(selectedCase).elapsedDays} DAYS
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Attached Packets */}
+                    <div className="pt-4 space-y-4">
+                      {selectedCase.complaintPacket && (
+                        <div>
+                          <div className="text-[10px] font-mono font-bold uppercase mb-1">Attached: Formal Complaint Packet</div>
+                          <div className="border border-ink/30 bg-ink/5 p-3 text-[10px] font-mono whitespace-pre-wrap">
+                            {selectedCase.complaintPacket.body}
+                          </div>
+                        </div>
+                      )}
+                      {selectedCase.escalationPacket && (
+                        <div>
+                          <div className="text-[10px] font-mono font-bold uppercase mb-1 text-stamp">Attached: Senior Escalation Packet</div>
+                          <div className="border border-stamp/30 bg-stamp/5 p-3 text-[10px] font-mono whitespace-pre-wrap">
+                            {selectedCase.escalationPacket.body}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="text-center pt-8 border-t border-ink/20 font-sans text-[9px] text-chalk">
+                      END OF CIVICPROOF CASE FILE. CRYPTOGRAPHICALLY SECURED ON PUBLIC LEDGER.
+                    </div>
+
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -2028,27 +2219,35 @@ export default function CivicProofApp() {
                   )}
                 </div>
 
-                {/* Presets selector for rapid hackathon judge review */}
+                {/* Optional Issue Helper */}
                 <div className="space-y-2">
-                  <span className="font-sans text-xs font-bold uppercase text-chalk tracking-wider block">
-                    Choose presets or snap your own
-                  </span>
+                  <div className="flex justify-between items-baseline">
+                    <span className="font-sans text-xs font-bold uppercase text-chalk tracking-wider block">
+                      Know the issue type?
+                    </span>
+                    <span className="text-[10px] text-chalk italic">Optional — CivicProof can detect this from your photo, voice, and note.</span>
+                  </div>
                   
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {PHOTO_PRESETS.map((preset, idx) => (
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { label: "Auto-detect", value: "auto-detect" },
+                      { label: "Road damage", value: "road_damage" },
+                      { label: "Garbage / waste", value: "waste_management" },
+                      { label: "Water leak / open drain", value: "water_leakage" },
+                      { label: "Streetlight", value: "streetlight" },
+                      { label: "Other", value: "other" }
+                    ].map((opt) => (
                       <button
-                        key={preset.name}
+                        key={opt.value}
                         onClick={() => {
-                          setSelectedPresetIndex(idx);
-                          setCustomPhoto(null);
-                          setVoiceNotes("");
+                          setManualCategory(opt.value);
                           triggerSound('tick');
                         }}
-                        className={`border p-1 text-[9px] font-mono text-center font-bold leading-tight ${
-                          selectedPresetIndex === idx && !customPhoto ? 'bg-stamp text-paper border-ink' : 'bg-paper text-ink border-ink/40'
+                        className={`border px-2 py-1 text-[10px] font-mono text-center font-bold leading-tight ${
+                          manualCategory === opt.value ? 'bg-stamp text-paper border-ink' : 'bg-paper text-ink border-ink/40'
                         }`}
                       >
-                        {preset.name.split(' ')[0]}
+                        {opt.label}
                       </button>
                     ))}
                   </div>
@@ -2097,6 +2296,7 @@ export default function CivicProofApp() {
                       rows={3}
                       className="w-full bg-transparent font-sans text-xs italic text-ink/90 outline-none border border-ink/20 p-1 resize-y focus:border-ink/50"
                     />
+                    <div className="text-[9px] text-chalk pt-1">You can edit the transcript before filing.</div>
                   </div>
                 )}
 
@@ -2225,6 +2425,9 @@ export default function CivicProofApp() {
                         <p className="font-sans text-xs text-ink/80 mt-1 leading-normal">
                           A neighbor reported a similar <span className="font-bold text-ink">&ldquo;{matchingNearby.category}&rdquo;</span> within 450 meters. Want to merge your photo to strengthen their case file instead of filing a duplicate?
                         </p>
+                        <p className="font-sans text-[10px] text-tally/80 italic mt-1">
+                          Duplicates strengthen existing proof instead of creating noise.
+                        </p>
                       </div>
                     </div>
 
@@ -2248,6 +2451,9 @@ export default function CivicProofApp() {
                     <div className="space-y-3">
                       <div className="bg-tally/10 border border-tally p-3 text-xs font-sans font-medium text-tally text-center rounded-sm">
                         ✔ No duplicate issues detected nearby. Direct routing available.
+                      </div>
+                      <div className="text-center font-sans text-[10px] text-chalk italic mb-1">
+                        Your report becomes part of a civic case file.
                       </div>
                       <button 
                         onClick={() => handleFinalizeFiling(true)}
@@ -2485,7 +2691,7 @@ export default function CivicProofApp() {
                   return true;
                 }).length === 0 && (
                   <div className="text-center py-12 border border-dashed border-ink/20 font-sans text-xs text-chalk p-6 bg-paper">
-                    &ldquo;Nothing reported on your street yet. You&apos;d be the first.&rdquo; (Bhopal empty state)
+                    &ldquo;Nothing reported on your street yet. You&apos;d be the first.&rdquo;
                   </div>
                 )}
               </div>
@@ -2507,7 +2713,7 @@ export default function CivicProofApp() {
                   Citizen Roll Call
                 </h3>
                 <p className="font-sans text-xs text-chalk">
-                  &ldquo;You&apos;ve been a CivicProof citizen for 47 days.&rdquo; (Bhopal voice)
+                  &ldquo;You&apos;ve been a CivicProof citizen for 47 days.&rdquo;
                 </p>
               </div>
 

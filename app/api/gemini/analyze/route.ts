@@ -8,7 +8,7 @@ import { ReportIntake } from "@/src/lib/civic/types";
 
 export async function POST(req: NextRequest) {
   try {
-    const { photoUrl, voiceTranscript, userNotes, gps, isVulnerable, voiceMode } = await req.json();
+    const { photoUrl, voiceTranscript, userNotes, gps, isVulnerable, voiceMode, manualCategory } = await req.json();
 
     if (!photoUrl) {
       return NextResponse.json({ error: "photoUrl is required for evidence analysis" }, { status: 400 });
@@ -27,16 +27,21 @@ export async function POST(req: NextRequest) {
     // Run AI analysis with strict safety limits and validation
     const smartResult = await analyzeReportSmart(intake);
     const analysis = smartResult.data;
+    
+    // Override category if manually selected
+    const effectiveCategory = manualCategory && manualCategory !== 'other' && manualCategory !== 'auto-detect' 
+      ? manualCategory 
+      : analysis.normalizedCategory;
 
     // Map domain category back to frontend-compatible categories
     let mappedCategory: CivicCase["category"] = "Pothole & Road Damage";
-    if (analysis.normalizedCategory === "water_leakage") {
+    if (effectiveCategory === "water_leakage") {
       mappedCategory = "Water Overflow";
-    } else if (analysis.normalizedCategory === "road_damage") {
+    } else if (effectiveCategory === "road_damage") {
       mappedCategory = "Pothole & Road Damage";
-    } else if (analysis.normalizedCategory === "waste_management") {
+    } else if (effectiveCategory === "waste_management") {
       mappedCategory = "Garbage Dump";
-    } else if (analysis.normalizedCategory === "streetlight") {
+    } else if (effectiveCategory === "streetlight") {
       mappedCategory = "Traffic & Footpath Obstruction";
     }
 
