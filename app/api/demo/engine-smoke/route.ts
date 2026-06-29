@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   try {
     const result = await runEngineSmokeTest();
     const failures = result.validation
-      ? result.validation.assertions.filter(a => !a.passed).map(a => `${a.name}: ${a.message}`)
+      ? result.validation.assertions.filter((a: any) => !a.passed).map((a: any) => `${a.name}: ${a.message}`)
       : result.success ? [] : ["Unknown failure occurred."];
 
     return NextResponse.json({
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   try {
     const result = await runEngineSmokeTest();
     const failures = result.validation
-      ? result.validation.assertions.filter(a => !a.passed).map(a => `${a.name}: ${a.message}`)
+      ? result.validation.assertions.filter((a: any) => !a.passed).map((a: any) => `${a.name}: ${a.message}`)
       : result.success ? [] : ["Unknown failure occurred."];
 
     return NextResponse.json({

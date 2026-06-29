@@ -9,6 +9,7 @@ import { getCasesDb, resetCasesDb } from "./mockDb";
 export async function runEngineSmokeTest(): Promise<{
   success: boolean;
   logs: string[];
+  validation?: any;
 }> {
   const logs: string[] = [];
   logs.push("=== CIVICPROOF ENGINE SMOKE TEST RUN ===");
