@@ -2,9 +2,11 @@
 // Built for Vibe2Ship Hackathon — Coding Ninjas x Google for Developers
 
 export interface GPSCoordinates {
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   address?: string;
+  accuracyMeters?: number;
+  confirmedByUser?: boolean;
 }
 
 export type CaseStatus = 'FILED' | 'ROUTED' | 'UNDER_REVIEW' | 'BREACHED' | 'RESOLVED';
@@ -69,6 +71,9 @@ export interface CivicCase {
 
 // 1. Calculate Haversine distance in meters
 export function getGPSDistanceInMeters(coord1: GPSCoordinates, coord2: GPSCoordinates): number {
+  if (coord1.latitude === null || coord1.longitude === null || coord2.latitude === null || coord2.longitude === null) {
+    return Infinity; // Cannot calculate distance if coordinates are missing
+  }
   const R = 6371e3; // Earth radius in meters
   const phi1 = (coord1.latitude * Math.PI) / 180;
   const phi2 = (coord2.latitude * Math.PI) / 180;
@@ -94,9 +99,16 @@ export function findMatchingNearbyCase(
   for (const item of existingCases) {
     if (item.status === 'RESOLVED') continue;
     if (item.category === newCategory) {
-      const distance = getGPSDistanceInMeters(newGps, item.gps);
-      if (distance <= thresholdMeters) {
-        return item;
+      if (newGps.latitude === null || newGps.longitude === null || item.gps.latitude === null || item.gps.longitude === null) {
+        // If coordinates missing, use text similarity (basic match on address)
+        if (newGps.address && item.gps.address && newGps.address.toLowerCase() === item.gps.address.toLowerCase()) {
+          return item; // Recommend review instead of merge ideally, but we return item for now
+        }
+      } else {
+        const distance = getGPSDistanceInMeters(newGps, item.gps);
+        if (distance <= thresholdMeters) {
+          return item;
+        }
       }
     }
   }

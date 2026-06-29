@@ -211,6 +211,12 @@ export default function CivicProofApp() {
 
   const [userNotes, setUserNotes] = useState<string>("");
   const [isVulnerableArea, setIsVulnerableArea] = useState(false);
+  
+  const [detectedLocation, setDetectedLocation] = useState<GPSCoordinates | null>(null);
+  const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
+  const [locationName, setLocationName] = useState<string>("Detecting location...");
+  const [locationConfirmed, setLocationConfirmed] = useState<boolean>(false);
+
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<any | null>(null);
   const [typingFields, setTypingFields] = useState<{ label: string; value: string }[]>([]);
@@ -414,6 +420,37 @@ export default function CivicProofApp() {
     };
   }, []);
 
+  useEffect(() => {
+    if (captureStep === 1 && !detectedLocation) {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            setDetectedLocation({
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              address: ''
+            });
+            setLocationAccuracy(pos.coords.accuracy);
+            setLocationName(`Lat: ${pos.coords.latitude.toFixed(4)}, Lng: ${pos.coords.longitude.toFixed(4)}`);
+          },
+          (err) => {
+            setLocationName("Location not detected — add manually");
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+        );
+      } else {
+        setLocationName("Location not detected — add manually");
+      }
+    }
+  }, [captureStep, detectedLocation]);
+
+  const getConfidenceLabel = (accuracy: number | null) => {
+    if (accuracy === null) return "Location not detected";
+    if (accuracy <= 25) return "High confidence location";
+    if (accuracy <= 75) return "Medium confidence";
+    return "Approximate location";
+  };
+
   // Handle local file photo upload
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -438,10 +475,17 @@ export default function CivicProofApp() {
     const targetNotes = userNotes || activePreset.notes;
     const targetVoice = voiceNotes || ""; // Remove automatic preset.voice fallback to prevent fake simulation
 
-    const gpsData: GPSCoordinates = {
+    const gpsData: GPSCoordinates = detectedLocation ? {
+      latitude: detectedLocation.latitude,
+      longitude: detectedLocation.longitude,
+      address: locationName || "",
+      accuracyMeters: locationAccuracy || undefined,
+      confirmedByUser: locationConfirmed
+    } : {
       latitude: activePreset.latitude,
       longitude: activePreset.longitude,
-      address: activePreset.address
+      address: locationName || activePreset.address,
+      confirmedByUser: locationConfirmed
     };
 
     // Trigger Polaroid develop reveal timer (1.4s)
@@ -1030,7 +1074,7 @@ export default function CivicProofApp() {
 
                   {/* Geotag marker overlay */}
                   <div className="absolute bottom-2 left-2 bg-ink/80 text-paper font-mono text-[10px] px-2 py-1 rounded-sm backdrop-blur-sm">
-                    LAT: {selectedCase.gps.latitude.toFixed(4)} LON: {selectedCase.gps.longitude.toFixed(4)}
+                    LAT: {selectedCase.gps.latitude?.toFixed(4) ?? 'N/A'} LON: {selectedCase.gps.longitude?.toFixed(4) ?? 'N/A'}
                   </div>
                 </div>
 
@@ -1178,7 +1222,7 @@ export default function CivicProofApp() {
                     <div>
                       <span className="text-chalk block">GPS LOCATOR</span>
                       <span className="font-semibold text-ink">
-                        {selectedCase.gps.latitude.toFixed(5)}N, {selectedCase.gps.longitude.toFixed(5)}E
+                        {selectedCase.gps.latitude?.toFixed(5) ?? 'N/A'}N, {selectedCase.gps.longitude?.toFixed(5) ?? 'N/A'}E
                       </span>
                     </div>
                     <div>
@@ -1564,7 +1608,7 @@ export default function CivicProofApp() {
                         </div>
                         <div className="flex-1 font-mono text-[10px] space-y-1">
                           <div className="bg-ink/5 p-1.5 border border-ink/20">
-                            <strong>Location:</strong> {selectedCase.gps.latitude.toFixed(5)}, {selectedCase.gps.longitude.toFixed(5)}
+                            <strong>Location:</strong> {selectedCase.gps.latitude?.toFixed(5) ?? 'N/A'}, {selectedCase.gps.longitude?.toFixed(5) ?? 'N/A'}
                           </div>
                           <div className="bg-ink/5 p-1.5 border border-ink/20">
                             <strong>Reported:</strong> {new Date(selectedCase.filedAt).toLocaleString()}
@@ -1810,7 +1854,7 @@ export default function CivicProofApp() {
               </div>
             </div>
 
-            {/* Row 4 (full width 12 cols, ≥ 1280px only): Live Map Preview */}
+            {/* Row 4 (full width 12 cols, ≥ 1280px only): Neighborhood Board Preview */}
             <div 
               onClick={() => {
                 setActiveTab('map');
@@ -1820,7 +1864,7 @@ export default function CivicProofApp() {
             >
               <div className="absolute top-3 left-3 z-10 bg-paper border border-ink font-sans text-[11px] font-bold px-2 py-1 stamp-shadow uppercase flex items-center gap-1.5">
                 <MapPin className="w-3.5 h-3.5 text-stamp" />
-                <span>Live Neighborhood Map Preview (Click to expand)</span>
+                <span>Neighborhood Board Preview (Click to expand)</span>
               </div>
               
               <svg className="absolute inset-0 w-full h-full select-none" xmlns="http://www.w3.org/2000/svg">
@@ -1995,6 +2039,7 @@ export default function CivicProofApp() {
                   )}
 
                   {cases
+                    .filter(c => c.gps.latitude !== null && c.gps.longitude !== null)
                     .filter(c => {
                       if (mapFilter === 'active') return c.status !== 'RESOLVED';
                       if (mapFilter === 'resolved') return c.status === 'RESOLVED';
@@ -2045,7 +2090,7 @@ export default function CivicProofApp() {
 
                 {/* Map Footer status */}
                 <div className="p-3 bg-paper/95 backdrop-blur border-t border-ink text-center text-[10px] text-chalk font-mono z-10">
-                  ACTIVE MAP OVERLAY · BENGALURU WARD 59 · 100% COMMUNITY AUTHENTICATED
+                  NEIGHBORHOOD BOARD · BENGALURU WARD 59 · NO EXACT LOCATIONS UNTIL CONFIRMED
                 </div>
 
               </div>
@@ -2077,6 +2122,7 @@ export default function CivicProofApp() {
               {/* Scrollable List container */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {cases
+                  .filter(c => c.gps.latitude !== null && c.gps.longitude !== null)
                   .filter(c => {
                     if (mapFilter === 'active') return c.status !== 'RESOLVED';
                     if (mapFilter === 'resolved') return c.status === 'RESOLVED';
@@ -2142,6 +2188,34 @@ export default function CivicProofApp() {
                     );
                   })}
 
+                {cases.filter(c => c.gps.latitude === null || c.gps.longitude === null).length > 0 && (
+                  <div className="mt-8 space-y-4">
+                    <h5 className="font-sans text-xs font-bold uppercase text-chalk tracking-wider border-b border-ink/20 pb-2">
+                      Cases needing location confirmation
+                    </h5>
+                    {cases.filter(c => c.gps.latitude === null || c.gps.longitude === null).map(item => (
+                      <div 
+                        key={`unlocated-${item.id}`}
+                        onClick={() => {
+                          setSelectedCase(item);
+                          triggerSound('tick');
+                        }}
+                        className="w-full h-auto p-3 border border-ink bg-paper cursor-pointer group hover:bg-ink/[0.02]"
+                      >
+                        <span className="font-mono text-[9px] uppercase text-chalk tracking-wider block mb-1">
+                          {item.id} · {item.category}
+                        </span>
+                        <h4 className="font-display font-semibold text-sm leading-tight tracking-tight text-ink mb-1">
+                          {item.title}
+                        </h4>
+                        <div className="text-[10px] font-sans text-stamp font-medium uppercase mt-2">
+                          + Add Location Pin
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {cases.filter(c => {
                   if (mapFilter === 'active') return c.status !== 'RESOLVED';
                   if (mapFilter === 'resolved') return c.status === 'RESOLVED';
@@ -2187,7 +2261,7 @@ export default function CivicProofApp() {
                 {/* Central Viewfinder Area */}
                 <div className="relative h-64 border-2 border-ink bg-ink/5 flex flex-col items-center justify-center overflow-hidden">
                   
-                  {/* If custom photo uploaded, display it, else show preset selected or fake viewfinder */}
+                  {/* If custom photo uploaded, display it, else show fake viewfinder */}
                   {customPhoto ? (
                     <img src={customPhoto} alt="Captured evidence" className="w-full h-full object-cover" />
                   ) : (
@@ -2203,18 +2277,8 @@ export default function CivicProofApp() {
                       </div>
 
                       <div className="text-center font-sans text-xs text-paper/80 bg-paper/10 p-2 backdrop-blur-sm border border-paper/10">
-                        &ldquo;Show us what you are seeing on the street. Talk if you want.&rdquo;
+                        &ldquo;Show us what you are seeing on the street. Upload photo evidence.&rdquo;
                       </div>
-                    </div>
-                  )}
-
-                  {/* Preset preview if selected and no custom photo */}
-                  {!customPhoto && (
-                    <div className="absolute inset-0 pointer-events-none flex flex-col justify-end p-2 bg-gradient-to-t from-ink/90 to-transparent">
-                      <p className="text-[10px] font-mono text-paper/70">PRESET SCENE ACTIVATED</p>
-                      <h5 className="font-display font-bold text-sm text-paper leading-none">
-                        {PHOTO_PRESETS[selectedPresetIndex].name}
-                      </h5>
                     </div>
                   )}
                 </div>
@@ -2359,11 +2423,56 @@ export default function CivicProofApp() {
                   <span>Located in high vulnerability area (school, hospital, heavy transit)</span>
                 </label>
 
+                {/* Location Detection Block */}
+                <div className="border border-ink p-3 space-y-2 bg-paper/50">
+                  <div className="flex justify-between items-baseline border-b border-ink/10 pb-1.5">
+                    <span className="font-sans text-xs font-bold uppercase text-chalk tracking-wider">
+                      Location Confidence
+                    </span>
+                    <span className="text-[10px] font-mono font-bold text-stamp">
+                      {getConfidenceLabel(locationAccuracy)} {locationAccuracy ? `(${Math.round(locationAccuracy)}m)` : ''}
+                    </span>
+                  </div>
+                  {!locationConfirmed ? (
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-sans italic text-ink/80">Confirm this pin before filing. Approximate until confirmed.</p>
+                      <input
+                        type="text"
+                        value={locationName}
+                        onChange={(e) => setLocationName(e.target.value)}
+                        placeholder="Enter nearby landmark or address..."
+                        className="w-full border border-ink p-2 text-xs bg-paper font-sans outline-none focus:ring-1 focus:ring-ink"
+                      />
+                      <button 
+                        type="button"
+                        onClick={() => { setLocationConfirmed(true); triggerSound('tick'); }}
+                        className="w-full h-10 border border-ink font-sans text-xs font-bold uppercase bg-paper text-ink hover:bg-ink/[0.04] stamp-shadow active:translate-y-0.5"
+                      >
+                        Confirm Location
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between items-center bg-tally/10 border border-tally p-2">
+                      <div className="space-y-0.5">
+                        <div className="text-[10px] text-tally font-bold uppercase">Pin confirmed by citizen</div>
+                        <div className="text-xs font-sans font-bold">{locationName}</div>
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={() => { setLocationConfirmed(false); triggerSound('tick'); }}
+                        className="text-[10px] text-tally underline font-sans font-bold hover:no-underline"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 {/* Submit button */}
                 <button 
                   onClick={handleAnalyzeEvidence}
-                  disabled={isAnalyzing}
-                  className="w-full h-14 bg-ink text-paper border border-ink font-display font-bold text-lg leading-none uppercase hover:bg-ink/90 active:translate-y-0.5 stamp-shadow flex justify-center items-center gap-1"
+                  disabled={isAnalyzing || !locationConfirmed || !customPhoto}
+                  className={`w-full h-14 border border-ink font-display font-bold text-lg leading-none uppercase stamp-shadow flex justify-center items-center gap-1 ${isAnalyzing || !locationConfirmed || !customPhoto ? 'bg-ink/50 text-paper/50 cursor-not-allowed' : 'bg-ink text-paper hover:bg-ink/90 active:translate-y-0.5'}`}
                 >
                   {isAnalyzing ? "Processing Evidence Docket..." : "BUILD EVIDENCE CASE"}
                 </button>
@@ -2736,12 +2845,12 @@ export default function CivicProofApp() {
                 <div className="border border-ink p-4 bg-paper space-y-4 stamp-shadow">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-full border-2 border-ink bg-stamp text-paper font-display text-xl font-bold flex items-center justify-center shrink-0">
-                      VN
+                      CP
                     </div>
                     <div>
-                      <h4 className="font-display font-bold text-lg leading-none">Vijay Natesh</h4>
+                      <h4 className="font-display font-bold text-lg leading-none">CivicProof Citizen</h4>
                       <span className="font-mono text-[10px] text-chalk font-semibold uppercase tracking-wider">
-                        ILACO DISTRICT: INDIRANAGAR (BLR-560038)
+                        ANONYMOUS CIVIC IDENTITY
                       </span>
                     </div>
                   </div>
@@ -2774,15 +2883,15 @@ export default function CivicProofApp() {
                   <h5 className="font-display font-bold uppercase tracking-wide text-ink">Citizenship Ledger</h5>
                   <div className="flex justify-between items-baseline border-b border-ink/10 pb-1.5">
                     <span className="text-chalk text-[10px] font-mono">STATUS:</span>
-                    <span className="font-bold text-tally">VERIFIED CITIZEN</span>
+                    <span className="font-bold text-tally">ANONYMOUS REPORTER</span>
                   </div>
                   <div className="flex justify-between items-baseline border-b border-ink/10 pb-1.5">
-                    <span className="text-chalk text-[10px] font-mono">STRENGTH TIER:</span>
-                    <span className="font-bold text-stamp">NEIGHBORHOOD GUARDIAN</span>
+                    <span className="text-chalk text-[10px] font-mono">NEIGHBORHOOD:</span>
+                    <span className="font-bold text-stamp">BLR (AUTO-DETECTED)</span>
                   </div>
                   <div className="flex justify-between items-baseline">
-                    <span className="text-chalk text-[10px] font-mono">ACTIVE SEALS:</span>
-                    <span className="font-bold font-mono">{resolvedCasesCount} SHARED SECURED</span>
+                    <span className="text-chalk text-[10px] font-mono">PRIVACY:</span>
+                    <span className="font-bold font-mono">PUBLIC CONTRIBUTIONS ONLY</span>
                   </div>
                 </div>
               </div>
@@ -2822,7 +2931,7 @@ export default function CivicProofApp() {
 
                     {cases.filter(c => c.corroborations.some(corr => corr.contributorName.startsWith("You"))).length === 0 && (
                       <div className="p-4 text-center text-chalk text-xs">
-                        No contributions recorded in Indiranagar ward ledger yet.
+                        No contributions recorded yet. File or corroborate your first civic case.
                       </div>
                     )}
                   </div>
