@@ -14,7 +14,7 @@ import {
   ArrowLeft, Share2, Printer, Check, Radio, AlertCircle, Copy
 } from 'lucide-react';
 import { CivicCase, GPSCoordinates, CaseStatus, CorroborationType, checkSilenceClockBreach, getGPSDistanceInMeters, findMatchingNearbyCase, routeToDepartment, calculateHarmScore } from '@/src/lib/civic/engine';
-import { loadCases, saveCases, resetCasesStorage, mapIssueToCase } from '@/src/lib/store';
+import { loadCases, saveCases, mapIssueToCase } from '@/src/lib/store';
 
 // Web Audio API Synthesizer for tactile analog sound design (Moments 5.1, 5.2, 5.4)
 const playSound = (type: 'thup' | 'tick' | 'ding', isMuted: boolean) => {
@@ -151,22 +151,8 @@ export default function CivicProofApp() {
         if (active && data.success && Array.isArray(data.cases)) {
           setStorageUnavailable(false);
           if (data.cases.length === 0) {
-            // Auto seed the database if empty for the first time
-            const seedRes = await fetch("/api/demo/seed-cases", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ allow_seed_emergency: true, overwrite: false })
-            });
-            const seedData = await seedRes.json();
-            if (seedData.success) {
-              const res2 = await fetch("/api/cases");
-              const data2 = await res2.json();
-              if (data2.success && Array.isArray(data2.cases)) {
-                 const mapped = data2.cases.map(mapIssueToCase);
-                 setCases(mapped);
-                 return;
-              }
-            }
+            setCases([]);
+            return;
           }
 
           const mapped = data.cases.map(mapIssueToCase);
@@ -264,14 +250,6 @@ export default function CivicProofApp() {
   // Toast removal
   const dismissToast = (id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
-  };
-
-  // Reset localStorage to original clean mock data for easy review
-  const handleResetData = () => {
-    const defaultCases = resetCasesStorage();
-    setCases(defaultCases);
-    setSelectedCase(null);
-    triggerToast("System database reset to initial mock cases.", "tally");
   };
 
   // Real voice recording flow and backend transcription integration
@@ -421,10 +399,12 @@ export default function CivicProofApp() {
   }, []);
 
   useEffect(() => {
+    let active = true;
     if (captureStep === 1 && !detectedLocation) {
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
+            if (!active) return;
             setDetectedLocation({
               latitude: pos.coords.latitude,
               longitude: pos.coords.longitude,
@@ -434,14 +414,13 @@ export default function CivicProofApp() {
             setLocationName(`Lat: ${pos.coords.latitude.toFixed(4)}, Lng: ${pos.coords.longitude.toFixed(4)}`);
           },
           (err) => {
-            setLocationName("Location not detected — add manually");
+            if (active) setLocationName("Location not detected — add manually");
           },
           { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
         );
-      } else {
-        setLocationName("Location not detected — add manually");
       }
     }
+    return () => { active = false; };
   }, [captureStep, detectedLocation]);
 
   const getConfidenceLabel = (accuracy: number | null) => {
@@ -1197,7 +1176,7 @@ export default function CivicProofApp() {
               {/* Mode B — The Public Record official Document (Bottom surface) */}
               <div className="p-4 bg-paper space-y-6 font-mono text-sm border-b-8 border-ink">
                 
-                {/* Official Stamp Mock Logo */}
+                {/* Official Stamp Logo */}
                 <div className="border border-ink p-4 bg-paper space-y-4">
                   <div className="flex justify-between items-start border-b border-ink pb-3">
                     <div className="space-y-1">
@@ -1924,16 +1903,6 @@ export default function CivicProofApp() {
               <div className="absolute bottom-3 right-3 bg-ink text-paper font-mono text-[9px] px-2 py-1 stamp-shadow uppercase">
                 Interactive Map Workspace Eligible
               </div>
-            </div>
-
-            {/* Quick reset database debug option */}
-            <div className="pt-4 flex justify-center">
-              <button 
-                onClick={handleResetData}
-                className="text-[10px] font-mono text-chalk hover:text-stamp flex items-center gap-1 bg-paper/50 px-2 py-1 border border-ink/10 hover:border-ink/20"
-              >
-                <Trash2 className="w-3 h-3" /> Reset Ledger to Default Mock Cases
-              </button>
             </div>
 
           </div>
@@ -2723,74 +2692,80 @@ export default function CivicProofApp() {
 
               {/* RIGHT Column (8 cols) - Stretched list of cases */}
               <div className="md:col-span-8 space-y-4">
-                {cases
-                  .filter(item => {
-                    if (mapFilter === 'active') return item.status !== 'RESOLVED';
-                    if (mapFilter === 'resolved') return item.status === 'RESOLVED';
-                    if (mapFilter === 'breached') return item.status === 'BREACHED';
-                    if (mapFilter === 'mine') return item.corroborations.some(co => co.contributorName === "You" || co.contributorName === "You (Original Reporter)");
-                    return true;
-                  })
-                  .map(item => {
-                    const { isBreached, elapsedDays } = checkSilenceClockBreach(item);
-                    return (
-                      <div 
-                        key={item.id}
-                        onClick={() => {
-                          setSelectedCase(item);
-                          triggerSound('tick');
-                        }}
-                        className="border-2 border-ink bg-paper p-3 space-y-3 cursor-pointer stamp-shadow hover:bg-ink/[0.01]"
-                      >
-                        {/* Card Header metadata */}
-                        <div className="flex justify-between items-center text-[10px] font-mono text-chalk border-b border-ink/10 pb-1.5">
-                          <span>{item.id}</span>
-                          <span>{new Date(item.filedAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })}</span>
-                        </div>
-
-                        {/* Title and details */}
-                        <div className="flex gap-3">
-                          <div className="w-16 h-16 border border-ink shrink-0 bg-ink/5 overflow-hidden">
-                            <img src={item.photoUrl} alt={item.title} className="w-full h-full object-cover" />
+                {cases.length === 0 ? (
+                  <div className="border border-dashed border-ink/20 bg-paper p-6 text-center text-chalk text-xs font-sans">
+                    “No public civic records yet.”
+                  </div>
+                ) : (
+                  cases
+                    .filter(item => {
+                      if (mapFilter === 'active') return item.status !== 'RESOLVED';
+                      if (mapFilter === 'resolved') return item.status === 'RESOLVED';
+                      if (mapFilter === 'breached') return item.status === 'BREACHED';
+                      if (mapFilter === 'mine') return item.corroborations.some(co => co.contributorName === "You" || co.contributorName === "You (Original Reporter)");
+                      return true;
+                    })
+                    .map(item => {
+                      const { isBreached, elapsedDays } = checkSilenceClockBreach(item);
+                      return (
+                        <div 
+                          key={item.id}
+                          onClick={() => {
+                            setSelectedCase(item);
+                            triggerSound('tick');
+                          }}
+                          className="border-2 border-ink bg-paper p-3 space-y-3 cursor-pointer stamp-shadow hover:bg-ink/[0.01]"
+                        >
+                          {/* Card Header metadata */}
+                          <div className="flex justify-between items-center text-[10px] font-mono text-chalk border-b border-ink/10 pb-1.5">
+                            <span>{item.id}</span>
+                            <span>{new Date(item.filedAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })}</span>
                           </div>
-                          <div className="space-y-1 flex-1">
-                            <h4 className="font-display font-semibold text-base text-ink leading-tight line-clamp-1">
-                              {item.title}
-                            </h4>
-                            <p className="font-sans text-xs text-chalk leading-tight line-clamp-2">
-                              {item.description}
-                            </p>
-                          </div>
-                        </div>
 
-                        {/* Breach Clock Alert Band if applicable (Moment 5.7 / Section 7.3) */}
-                        {item.status === 'BREACHED' && (
-                          <div className="bg-breach text-paper text-[11px] font-display font-bold px-2 py-1 flex items-center gap-1.5">
-                            <AlertTriangle className="w-3.5 h-3.5" /> 7 DAYS PASSED. NO RESPONSE FROM AUTHORITY.
+                          {/* Title and details */}
+                          <div className="flex gap-3">
+                            <div className="w-16 h-16 border border-ink shrink-0 bg-ink/5 overflow-hidden">
+                              <img src={item.photoUrl} alt={item.title} className="w-full h-full object-cover" />
+                            </div>
+                            <div className="space-y-1 flex-1">
+                              <h4 className="font-display font-semibold text-base text-ink leading-tight line-clamp-1">
+                                {item.title}
+                              </h4>
+                              <p className="font-sans text-xs text-chalk leading-tight line-clamp-2">
+                                {item.description}
+                              </p>
+                            </div>
                           </div>
-                        )}
 
-                        {/* Card Footer actions bar */}
-                        <div className="flex justify-between items-center pt-2 border-t border-ink/10">
-                          <span className="font-sans text-[11px] text-chalk font-semibold uppercase">
-                            {item.status === 'RESOLVED' ? 'Status: Sealed Resolved' : `Inaction: ${elapsedDays} Days`}
-                          </span>
-                          
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs font-bold bg-ink text-paper px-2 py-0.5 border border-ink">
-                              HARM {item.harmScore}
+                          {/* Breach Clock Alert Band if applicable (Moment 5.7 / Section 7.3) */}
+                          {item.status === 'BREACHED' && (
+                            <div className="bg-breach text-paper text-[11px] font-display font-bold px-2 py-1 flex items-center gap-1.5">
+                              <AlertTriangle className="w-3.5 h-3.5" /> 7 DAYS PASSED. NO RESPONSE FROM AUTHORITY.
+                            </div>
+                          )}
+
+                          {/* Card Footer actions bar */}
+                          <div className="flex justify-between items-center pt-2 border-t border-ink/10">
+                            <span className="font-sans text-[11px] text-chalk font-semibold uppercase">
+                              {item.status === 'RESOLVED' ? 'Status: Sealed Resolved' : `Inaction: ${elapsedDays} Days`}
                             </span>
-                            <span className={`font-mono text-xs font-bold px-2 py-0.5 border border-ink ${
-                              item.status === 'RESOLVED' ? 'bg-tally text-paper' : 'bg-paper text-ink'
-                            }`}>
-                              {item.corroborations.length} SIGS
-                            </span>
+                            
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-bold bg-ink text-paper px-2 py-0.5 border border-ink">
+                                HARM {item.harmScore}
+                              </span>
+                              <span className={`font-mono text-xs font-bold px-2 py-0.5 border border-ink ${
+                                item.status === 'RESOLVED' ? 'bg-tally text-paper' : 'bg-paper text-ink'
+                              }`}>
+                                {item.corroborations.length} SIGS
+                              </span>
+                            </div>
                           </div>
-                        </div>
 
-                      </div>
-                    );
-                  })}
+                        </div>
+                      );
+                    })
+                )}
 
                 {cases.filter(item => {
                   if (mapFilter === 'active') return item.status !== 'RESOLVED';
@@ -2931,7 +2906,7 @@ export default function CivicProofApp() {
 
                     {cases.filter(c => c.corroborations.some(corr => corr.contributorName.startsWith("You"))).length === 0 && (
                       <div className="p-4 text-center text-chalk text-xs">
-                        No contributions recorded yet. File or corroborate your first civic case.
+                        Your civic record is empty. File or corroborate your first case.
                       </div>
                     )}
                   </div>

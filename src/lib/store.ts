@@ -6,10 +6,10 @@ import { CivicIssue } from "./civic/types";
 
 const STORAGE_KEY = "civicproof_cases_v2";
 
-const INITIAL_MOCK_CASES: CivicCase[] = [];
+const INITIAL_EMPTY_CASES: CivicCase[] = [];
 
 export function loadCases(): CivicCase[] {
-  if (typeof window === "undefined") return INITIAL_MOCK_CASES;
+  if (typeof window === "undefined") return INITIAL_EMPTY_CASES;
   
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -41,7 +41,7 @@ export function loadCases(): CivicCase[] {
     console.error("Failed to load local storage cases:", err);
   }
   
-  return INITIAL_MOCK_CASES;
+  return INITIAL_EMPTY_CASES;
 }
 
 export function saveCases(cases: CivicCase[]) {
@@ -66,15 +66,6 @@ export function saveCases(cases: CivicCase[]) {
   } catch (err) {
     console.error("Failed to save cases to local storage:", err);
   }
-}
-
-export function resetCasesStorage(): CivicCase[] {
-  if (typeof window !== "undefined") {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_MOCK_CASES));
-    } catch (e) {}
-  }
-  return INITIAL_MOCK_CASES;
 }
 
 export function mapIssueToCase(issue: CivicIssue): CivicCase {
