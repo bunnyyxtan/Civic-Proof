@@ -1,0 +1,235 @@
+// CivicProof Deterministic Product Engine
+// Built for Vibe2Ship Hackathon — Coding Ninjas x Google for Developers
+
+export interface GPSCoordinates {
+  latitude: number;
+  longitude: number;
+  address?: string;
+}
+
+export type CaseStatus = 'FILED' | 'ROUTED' | 'UNDER_REVIEW' | 'BREACHED' | 'RESOLVED';
+
+export type CorroborationType = 'angle' | 'impact' | 'timestamp';
+
+export interface Corroboration {
+  id: string;
+  filedAt: string;
+  text?: string;
+  type: CorroborationType;
+  contributorName: string;
+  additionalPhotoUrl?: string;
+}
+
+export interface TimelineEvent {
+  id: string;
+  timestamp: string;
+  title: string;
+  description: string;
+  type: 'file' | 'route' | 'corroborate' | 'review' | 'breach' | 'resolve' | 'escalate';
+  actorName?: string;
+}
+
+export interface HarmScoreBreakdown {
+  safetyHazard: number;      // 0 to 25
+  publicImpact: number;      // 0 to 25
+  vulnerabilityFactor: number; // 0 to 25
+  durationFactor: number;    // 0 to 25
+}
+
+export interface ComplaintPacket {
+  subject: string;
+  recipient: string;
+  body: string;
+  generatedAt: string;
+}
+
+export interface CivicCase {
+  id: string; // E.g., CP-2026-A83B4
+  title: string;
+  description: string;
+  voiceTranscript?: string;
+  category: 'Water Overflow' | 'Pothole & Road Damage' | 'Garbage Dump' | 'Power Line Danger' | 'Traffic & Footpath Obstruction';
+  department: string;
+  gps: GPSCoordinates;
+  photoUrl: string;
+  filedAt: string; // ISO String
+  status: CaseStatus;
+  harmScore: number; // 1 to 100
+  harmScoreBreakdown: HarmScoreBreakdown;
+  corroborations: Corroboration[];
+  timeline: TimelineEvent[];
+  complaintPacket: ComplaintPacket | null;
+  escalationPacket: ComplaintPacket | null;
+  resolutionReasoning: string | null;
+  resolvedAt: string | null;
+  authorityLastSeenAt: string | null;
+}
+
+// 1. Calculate Haversine distance in meters
+export function getGPSDistanceInMeters(coord1: GPSCoordinates, coord2: GPSCoordinates): number {
+  const R = 6371e3; // Earth radius in meters
+  const phi1 = (coord1.latitude * Math.PI) / 180;
+  const phi2 = (coord2.latitude * Math.PI) / 180;
+  const deltaPhi = ((coord2.latitude - coord1.latitude) * Math.PI) / 180;
+  const deltaLambda = ((coord2.longitude - coord1.longitude) * Math.PI) / 180;
+
+  const a =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+}
+
+// 2. Check for duplicate/corroboration match (same category, within 450 meters)
+export function findMatchingNearbyCase(
+  newGps: GPSCoordinates,
+  newCategory: string,
+  existingCases: CivicCase[]
+): CivicCase | null {
+  const thresholdMeters = 450; // Proximity zone for "neighborhood corroboration"
+  
+  for (const item of existingCases) {
+    if (item.status === 'RESOLVED') continue;
+    if (item.category === newCategory) {
+      const distance = getGPSDistanceInMeters(newGps, item.gps);
+      if (distance <= thresholdMeters) {
+        return item;
+      }
+    }
+  }
+  return null;
+}
+
+// 3. Department Routing Matrix
+export function routeToDepartment(category: CivicCase['category']): string {
+  switch (category) {
+    case 'Water Overflow':
+      return 'Bangalore Water Supply and Sewerage Board (BWSSB)';
+    case 'Pothole & Road Damage':
+      return 'Bruhat Bengaluru Mahanagara Palike (BBMP) - Road Infrastructure Dept';
+    case 'Garbage Dump':
+      return 'BBMP Solid Waste Management Division';
+    case 'Power Line Danger':
+      return 'Bangalore Electricity Supply Company (BESCOM)';
+    case 'Traffic & Footpath Obstruction':
+      return 'Bengaluru Traffic Police & BBMP Footpath Division';
+    default:
+      return 'Municipal Corporation Ward Administration';
+  }
+}
+
+// 4. Deterministic Harm Score Engine
+export function calculateHarmScore(
+  category: CivicCase['category'],
+  filedAtIso: string,
+  corroborationCount: number,
+  isVulnerableArea: boolean = false
+): { score: number; breakdown: HarmScoreBreakdown } {
+  // A. Safety Hazard Base (0-25)
+  let safetyHazard = 10;
+  if (category === 'Power Line Danger') safetyHazard = 25; // Fatal risk
+  else if (category === 'Water Overflow') safetyHazard = 18; // Disease/slipping risk
+  else if (category === 'Pothole & Road Damage') safetyHazard = 15; // Two-wheeler accident risk
+  else if (category === 'Traffic & Footpath Obstruction') safetyHazard = 12;
+  else if (category === 'Garbage Dump') safetyHazard = 10;
+
+  // B. Public Impact (0-25) based on corroborations (more neighbors = broader impact)
+  // 1 reporter = 8 points, 2 = 14 points, 3 = 19 points, 4+ = 25 points
+  const publicImpact = Math.min(25, 8 + (corroborationCount - 1) * 6);
+
+  // C. Vulnerability Factor (0-25) e.g., heavy rain, school zone, hospital near, or dense locality
+  const vulnerabilityFactor = isVulnerableArea ? 25 : 12;
+
+  // D. Duration Factor (0-25)
+  // SLA threshold is 7 days. Escalation is possible.
+  // 1 day = 3 points, 3 days = 10 points, 7 days = 20 points, 10+ days = 25 points
+  const filedDate = new Date(filedAtIso);
+  const currentDate = new Date('2026-06-29T09:32:32-07:00'); // Consistent reference date
+  const msDiff = currentDate.getTime() - filedDate.getTime();
+  const daysDiff = Math.max(0, msDiff / (1000 * 60 * 60 * 24));
+
+  let durationFactor = 2;
+  if (daysDiff >= 10) durationFactor = 25;
+  else if (daysDiff >= 7) durationFactor = 20;
+  else if (daysDiff >= 3) durationFactor = 12;
+  else if (daysDiff >= 1) durationFactor = 6;
+
+  const totalScore = Math.min(100, Math.max(5, safetyHazard + publicImpact + vulnerabilityFactor + durationFactor));
+
+  return {
+    score: Math.round(totalScore),
+    breakdown: {
+      safetyHazard,
+      publicImpact,
+      vulnerabilityFactor,
+      durationFactor,
+    },
+  };
+}
+
+// 5. Silence Clock / SLA Breach Check
+// Returns true if the case is FILED, ROUTED, or UNDER_REVIEW and has been silent for more than 7 days
+export function checkSilenceClockBreach(caseItem: CivicCase): { isBreached: boolean; elapsedDays: number } {
+  if (caseItem.status === 'RESOLVED') {
+    return { isBreached: false, elapsedDays: 0 };
+  }
+
+  const filedDate = new Date(caseItem.filedAt);
+  const currentDate = new Date('2026-06-29T09:32:32-07:00');
+  const msDiff = currentDate.getTime() - filedDate.getTime();
+  const elapsedDays = Math.max(0, Math.floor(msDiff / (1000 * 60 * 60 * 24)));
+
+  const isBreached = elapsedDays >= 7;
+  return { isBreached, elapsedDays };
+}
+
+// 6. Next Action Recommendation engine based on case status and elapsed days
+export function getNextActionRecommendation(caseItem: CivicCase): {
+  label: string;
+  actionType: 'corroborate' | 'escalate' | 'view_packet' | 'file' | 'await_response';
+  description: string;
+} {
+  const { isBreached, elapsedDays } = checkSilenceClockBreach(caseItem);
+
+  if (caseItem.status === 'RESOLVED') {
+    return {
+      label: 'Verified Closed',
+      actionType: 'await_response',
+      description: 'This case is resolved and verified by local citizen audits.',
+    };
+  }
+
+  if (isBreached) {
+    return {
+      label: 'Escalate to Commissioner',
+      actionType: 'escalate',
+      description: `SLA breached: Case ignored for ${elapsedDays} days. Escalate with complete evidence packet.`,
+    };
+  }
+
+  if (caseItem.corroborations.length < 3) {
+    return {
+      label: 'Gather Neighbors',
+      actionType: 'corroborate',
+      description: 'Needs 2 more neighborhood validations to increase authority urgency.',
+    };
+  }
+
+  return {
+    label: 'Await Authority Response',
+    actionType: 'await_response',
+    description: `Routed to ${caseItem.department}. Under official 7-day SLA timeline (Day ${elapsedDays} of 7).`,
+  };
+}
+
+// 7. Case Id Generator
+export function generateCaseId(): string {
+  const year = 2026;
+  const randomHex = Math.floor(Math.random() * 65536)
+    .toString(16)
+    .toUpperCase()
+    .padStart(4, '0');
+  const randomChar = String.fromCharCode(65 + Math.floor(Math.random() * 26));
+  return `CP-${year}-${randomChar}${randomHex}`;
+}

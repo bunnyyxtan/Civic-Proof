@@ -1,0 +1,8 @@
+/app/applet
+├── package-lock.json
+├── tree.txt
+├── tree_parent.txt
+└── tree_root.txt
+
+file: 4
+
