@@ -8,7 +8,7 @@ import { ReportIntake } from "@/src/lib/civic/types";
 
 export async function POST(req: NextRequest) {
   try {
-    const { photoUrl, voiceTranscript, userNotes, gps, isVulnerable } = await req.json();
+    const { photoUrl, voiceTranscript, userNotes, gps, isVulnerable, voiceMode } = await req.json();
 
     if (!photoUrl) {
       return NextResponse.json({ error: "photoUrl is required for evidence analysis" }, { status: 400 });
@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
       title: analysis.suggestedTitle || "Unspecified Civic Defect",
       description: userNotes || analysis.civicSummary || "No description provided by citizen.",
       voiceTranscript: voiceTranscript || undefined,
+      voiceMode: voiceMode || undefined,
       category: mappedCategory,
       department: routedDept,
       gps: gps || { latitude: 12.9716, longitude: 77.6412, address: "Indiranagar, Bengaluru" },

@@ -36,6 +36,7 @@ export interface ReportIntake {
   citizenNote?: string;
   selectedCategory?: IssueCategory;
   reportedAt: string;
+  dataOrigin?: 'user_report' | 'judge_demo';
 }
 
 export interface AIAnalysisResult {
@@ -139,6 +140,7 @@ export interface CorroborationRecord {
 
 export interface CivicIssue {
   id: string;
+  dataOrigin?: 'user_report' | 'judge_demo';
   title: string;
   category: IssueCategory;
   status: IssueStatus;

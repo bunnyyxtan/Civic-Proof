@@ -240,11 +240,22 @@ const SEED_ISSUES: CivicIssue[] = [
 
 export async function GET(req: NextRequest) {
   try {
+    const url = new URL(req.url);
+    const allowSeed = url.searchParams.get("allow_seed_emergency") === "true";
+
+    if (!allowSeed) {
+      return NextResponse.json({
+        ok: false,
+        error: {
+          code: "DEMO_SEEDING_DISABLED_BY_DEFAULT",
+          message: "Demo seeding is disabled for the normal app. Use /demo for judge story mode."
+        }
+      }, { status: 403 });
+    }
+
     const repository = getCaseRepository();
     const meta = getPersistenceMetadata();
     const repoType = meta.persistence.includes("firestore") ? "firestore" : "mock";
-
-    const url = new URL(req.url);
     const overwrite = url.searchParams.get("overwrite") === "true";
 
     const existing = await repository.listCases();
@@ -263,12 +274,14 @@ export async function GET(req: NextRequest) {
     // Write issues sequentially
     const createdIssues: CivicIssue[] = [];
     for (const issue of SEED_ISSUES) {
-      const created = await repository.createCase(issue);
+      const issueWithOrigin = { ...issue, dataOrigin: "judge_demo" as const };
+      const created = await repository.createCase(issueWithOrigin);
       createdIssues.push(created);
     }
 
     return NextResponse.json({
       ok: true,
+      success: true,
       data: {
         repository: repoType,
         seededCount: createdIssues.length,
@@ -290,11 +303,23 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const url = new URL(req.url);
+    const body = await req.json().catch(() => ({}));
+    const allowSeed = url.searchParams.get("allow_seed_emergency") === "true" || body.allow_seed_emergency === true;
+
+    if (!allowSeed) {
+      return NextResponse.json({
+        ok: false,
+        error: {
+          code: "DEMO_SEEDING_DISABLED_BY_DEFAULT",
+          message: "Demo seeding is disabled for the normal app. Use /demo for judge story mode."
+        }
+      }, { status: 403 });
+    }
+
     const repository = getCaseRepository();
     const meta = getPersistenceMetadata();
     const repoType = meta.persistence.includes("firestore") ? "firestore" : "mock";
-
-    const body = await req.json().catch(() => ({}));
     const { overwrite = false } = body;
 
     const existing = await repository.listCases();
@@ -313,12 +338,14 @@ export async function POST(req: NextRequest) {
     // Write issues sequentially
     const createdIssues: CivicIssue[] = [];
     for (const issue of SEED_ISSUES) {
-      const created = await repository.createCase(issue);
+      const issueWithOrigin = { ...issue, dataOrigin: "judge_demo" as const };
+      const created = await repository.createCase(issueWithOrigin);
       createdIssues.push(created);
     }
 
     return NextResponse.json({
       ok: true,
+      success: true,
       data: {
         repository: repoType,
         seededCount: createdIssues.length,

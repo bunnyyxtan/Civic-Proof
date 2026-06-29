@@ -7,12 +7,20 @@ import { mapCaseToIssue } from "@/src/lib/store";
 
 export async function GET(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url);
+    const includeDemo = searchParams.get("includeDemo") === "true";
+
     const repository = getCaseRepository();
-    const cases = await repository.listCases();
+    const allCases = await repository.listCases();
+
+    // Filter out judge_demo records unless includeDemo is explicitly requested
+    const filteredCases = includeDemo 
+      ? allCases 
+      : allCases.filter(c => c.dataOrigin !== "judge_demo");
 
     return NextResponse.json({
       success: true,
-      cases,
+      cases: filteredCases,
       meta: getPersistenceMetadata(),
     });
   } catch (err: any) {

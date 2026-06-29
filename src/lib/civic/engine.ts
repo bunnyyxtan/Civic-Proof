@@ -45,9 +45,11 @@ export interface ComplaintPacket {
 
 export interface CivicCase {
   id: string; // E.g., CP-2026-A83B4
+  dataOrigin?: 'user_report' | 'judge_demo';
   title: string;
   description: string;
   voiceTranscript?: string;
+  voiceMode?: string;
   category: 'Water Overflow' | 'Pothole & Road Damage' | 'Garbage Dump' | 'Power Line Danger' | 'Traffic & Footpath Obstruction';
   department: string;
   gps: GPSCoordinates;

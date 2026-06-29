@@ -39,6 +39,7 @@ export const ReportIntakeSchema = z.object({
   citizenNote: z.string().optional(),
   selectedCategory: IssueCategorySchema.optional(),
   reportedAt: z.string(),
+  dataOrigin: z.enum(["user_report", "judge_demo"]).optional(),
 });
 
 export const AIAnalysisResultSchema = z.object({
@@ -134,6 +135,7 @@ export const TimelineEventSchema = z.object({
 
 export const CivicIssueSchema = z.object({
   id: z.string(),
+  dataOrigin: z.enum(["user_report", "judge_demo"]).optional(),
   title: z.string(),
   category: IssueCategorySchema,
   status: IssueStatusSchema,

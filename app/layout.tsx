@@ -7,6 +7,8 @@ export const metadata: Metadata = {
   description: 'CivicProof turns citizen reports into evidence-backed civic case files.',
 };
 
+export const dynamic = 'force-dynamic';
+
 const displayFont = Bricolage_Grotesque({
   subsets: ['latin'],
   variable: '--font-display-loaded',

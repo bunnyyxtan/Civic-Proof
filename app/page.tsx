@@ -1,5 +1,7 @@
 'use client';
 
+/* eslint-disable react-hooks/purity */
+
 // CivicProof — Hyperlocal Problem Solver
 // Built for Vibe2Ship Hackathon — Coding Ninjas x Google for Developers
 
@@ -124,6 +126,8 @@ const PHOTO_PRESETS = [
   }
 ];
 
+export const dynamic = 'force-dynamic';
+
 export default function CivicProofApp() {
   // Navigation & View states
   const [activeTab, setActiveTab] = useState<'home' | 'map' | 'report' | 'cases' | 'you'>('home');
@@ -185,6 +189,15 @@ export default function CivicProofApp() {
   const [customPhoto, setCustomPhoto] = useState<string | null>(null);
   const [voiceNotes, setVoiceNotes] = useState<string>("");
   const [isRecording, setIsRecording] = useState(false);
+  const [voiceMode, setVoiceMode] = useState<'hi-IN' | 'en-IN' | 'mixed-IN'>('mixed-IN');
+  const [voiceStatus, setVoiceStatus] = useState<'default' | 'recording' | 'transcribing' | 'success' | 'empty' | 'error'>('default');
+  const [voiceCapturedMode, setVoiceCapturedMode] = useState<string | null>(null);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingStartTimeRef = useRef<number>(0);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const [userNotes, setUserNotes] = useState<string>("");
   const [isVulnerableArea, setIsVulnerableArea] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -244,21 +257,151 @@ export default function CivicProofApp() {
     triggerToast("System database reset to initial mock cases.", "tally");
   };
 
-  // 1. Voice transcript simulation
-  const handleToggleVoiceRecord = () => {
-    if (!isRecording) {
+  // Real voice recording flow and backend transcription integration
+  const startRecording = async () => {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Microphone API is not supported in this browser.");
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      
+      let options = { mimeType: 'audio/webm;codecs=opus' };
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options = { mimeType: 'audio/webm' };
+      }
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options = { mimeType: 'audio/ogg;codecs=opus' };
+      }
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options = { mimeType: '' };
+      }
+
+      const mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorderRef.current = mediaRecorder;
+      recordingStartTimeRef.current = Date.now();
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(track => track.stop());
+
+        const duration = Date.now() - recordingStartTimeRef.current;
+        const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType || 'audio/webm' });
+
+        if (duration < 800 || audioBlob.size < 200) {
+          setVoiceStatus('empty');
+          setVoiceNotes("");
+          setVoiceCapturedMode(null);
+          triggerToast("No clear speech detected. Try again or type manually.", "breach");
+          return;
+        }
+
+        await processAudioTranscription(audioBlob);
+      };
+
+      mediaRecorder.start(100);
+      setVoiceStatus('recording');
       setIsRecording(true);
       triggerSound('tick');
-      // Simulate speech to text transcription after 3s
-      setTimeout(() => {
-        setVoiceNotes(PHOTO_PRESETS[selectedPresetIndex].voice);
-        setIsRecording(false);
-        triggerToast("Voice note successfully transcribed as evidence.", "tally");
-      }, 3000);
-    } else {
-      setIsRecording(false);
+
+      if (recordingTimerRef.current) clearTimeout(recordingTimerRef.current);
+      recordingTimerRef.current = setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          stopRecording();
+        }
+      }, 20000);
+
+    } catch (err) {
+      console.error("Microphone access failed:", err);
+      setVoiceStatus('error');
+      setVoiceNotes("");
+      setVoiceCapturedMode(null);
+      triggerToast("Voice transcription is unavailable right now. Type your note manually and continue.", "breach");
     }
   };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    if (recordingTimerRef.current) {
+      clearTimeout(recordingTimerRef.current);
+    }
+    setIsRecording(false);
+  };
+
+  const processAudioTranscription = async (audioBlob: Blob) => {
+    setVoiceStatus('transcribing');
+    
+    const reader = new FileReader();
+    reader.readAsDataURL(audioBlob);
+    reader.onloadend = async () => {
+      const base64Url = reader.result as string;
+
+      try {
+        const response = await fetch("/api/voice/transcribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            audioDataUrl: base64Url,
+            mimeType: audioBlob.type,
+            voiceMode: voiceMode
+          })
+        });
+
+        const result = await response.json();
+
+        if (result.ok && result.data) {
+          const { transcript, emptySpeechDetected } = result.data;
+
+          if (emptySpeechDetected) {
+            setVoiceStatus('empty');
+            setVoiceNotes("");
+            setVoiceCapturedMode(null);
+            triggerToast("No clear speech detected. Try again or type manually.", "breach");
+          } else {
+            setVoiceStatus('success');
+            setVoiceNotes(transcript);
+            setVoiceCapturedMode(voiceMode);
+            triggerToast("Voice note successfully transcribed as evidence.", "tally");
+          }
+        } else {
+          setVoiceStatus('error');
+          setVoiceNotes("");
+          setVoiceCapturedMode(null);
+          triggerToast(result.error?.message || "Voice transcription is unavailable right now. Type your note manually and continue.", "breach");
+        }
+      } catch (err) {
+        console.error("Transcription API failed:", err);
+        setVoiceStatus('error');
+        setVoiceNotes("");
+        setVoiceCapturedMode(null);
+        triggerToast("Voice transcription is unavailable right now. Type your note manually and continue.", "breach");
+      }
+    };
+  };
+
+  const handleToggleVoiceRecord = () => {
+    if (voiceStatus !== 'recording') {
+      startRecording();
+    } else {
+      stopRecording();
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) {
+        clearTimeout(recordingTimerRef.current);
+      }
+    };
+  }, []);
 
   // Handle local file photo upload
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -282,7 +425,7 @@ export default function CivicProofApp() {
     const activePreset = PHOTO_PRESETS[selectedPresetIndex];
     const targetPhoto = customPhoto || activePreset.url;
     const targetNotes = userNotes || activePreset.notes;
-    const targetVoice = voiceNotes || activePreset.voice;
+    const targetVoice = voiceNotes || ""; // Remove automatic preset.voice fallback to prevent fake simulation
 
     const gpsData: GPSCoordinates = {
       latitude: activePreset.latitude,
@@ -304,7 +447,8 @@ export default function CivicProofApp() {
           voiceTranscript: targetVoice,
           userNotes: targetNotes,
           gps: gpsData,
-          isVulnerable: isVulnerableArea
+          isVulnerable: isVulnerableArea,
+          voiceMode: voiceCapturedMode || undefined
         })
       });
 
@@ -382,6 +526,8 @@ export default function CivicProofApp() {
     setCaptureStep(1);
     setCustomPhoto(null);
     setVoiceNotes("");
+    setVoiceStatus("default");
+    setVoiceCapturedMode(null);
     setUserNotes("");
     setIsVulnerableArea(false);
     setAnalysisResult(null);
@@ -1352,63 +1498,73 @@ export default function CivicProofApp() {
                 </div>
 
                 <div className="flex gap-4 overflow-x-auto pb-4 snap-x md:overflow-x-visible md:grid md:grid-cols-2 lg:grid-cols-4 md:gap-4 md:pb-0">
-                  {cases.map(item => {
-                    const { isBreached, elapsedDays } = checkSilenceClockBreach(item);
-                    return (
-                      <div 
-                        key={item.id}
-                        onClick={() => {
-                          setSelectedCase(item);
-                          triggerSound('tick');
-                        }}
-                        className="w-60 h-64 shrink-0 md:w-full md:shrink border border-ink relative cursor-pointer group snap-start bg-ink/10 select-none overflow-hidden stamp-shadow"
-                      >
-                        <img 
-                          src={item.photoUrl} 
-                          alt={item.title} 
-                          className="absolute inset-0 w-full h-full object-cover filter brightness-[0.7] group-hover:scale-105 transition-transform duration-300"
-                        />
-                        
-                        {/* Gradient overlay for text contrast */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-ink via-ink/20 to-transparent"></div>
+                  {storageUnavailable ? (
+                    <div className="col-span-full border border-dashed border-breach bg-breach/5 text-center py-12 font-sans text-xs text-ink p-6 w-full">
+                      “Civic record storage is unavailable right now. Please try again.”
+                    </div>
+                  ) : cases.length === 0 ? (
+                    <div className="col-span-full text-center py-12 border border-dashed border-ink/20 font-sans text-xs text-chalk p-6 bg-paper w-full">
+                      “No civic cases on your block yet. Be the first to file proof.”
+                    </div>
+                  ) : (
+                    cases.map(item => {
+                      const { isBreached, elapsedDays } = checkSilenceClockBreach(item);
+                      return (
+                        <div 
+                          key={item.id}
+                          onClick={() => {
+                            setSelectedCase(item);
+                            triggerSound('tick');
+                          }}
+                          className="w-60 h-64 shrink-0 md:w-full md:shrink border border-ink relative cursor-pointer group snap-start bg-ink/10 select-none overflow-hidden stamp-shadow"
+                        >
+                          <img 
+                            src={item.photoUrl} 
+                            alt={item.title} 
+                            className="absolute inset-0 w-full h-full object-cover filter brightness-[0.7] group-hover:scale-105 transition-transform duration-300"
+                          />
+                          
+                          {/* Gradient overlay for text contrast */}
+                          <div className="absolute inset-0 bg-gradient-to-t from-ink via-ink/20 to-transparent"></div>
 
-                        {/* Header stamps */}
-                        <div className="absolute top-2 right-2 flex flex-col gap-1 items-end">
-                          {item.status === 'RESOLVED' ? (
-                            <span className="bg-tally text-paper border border-ink px-1.5 py-0.5 text-[9px] font-bold font-display uppercase stamp-shadow">
-                              ✔ Sealed
-                            </span>
-                          ) : isBreached ? (
-                            <span className="bg-breach text-paper border border-ink px-1.5 py-0.5 text-[9px] font-bold font-display uppercase stamp-shadow">
-                              🚨 Breached
-                            </span>
-                          ) : (
-                            <span className="bg-stamp text-paper border border-ink px-1.5 py-0.5 text-[9px] font-bold font-display uppercase stamp-shadow">
-                              {item.status}
-                            </span>
-                          )}
-                        </div>
+                          {/* Header stamps */}
+                          <div className="absolute top-2 right-2 flex flex-col gap-1 items-end">
+                            {item.status === 'RESOLVED' ? (
+                              <span className="bg-tally text-paper border border-ink px-1.5 py-0.5 text-[9px] font-bold font-display uppercase stamp-shadow">
+                                ✔ Sealed
+                              </span>
+                            ) : isBreached ? (
+                              <span className="bg-breach text-paper border border-ink px-1.5 py-0.5 text-[9px] font-bold font-display uppercase stamp-shadow">
+                                🚨 Breached
+                              </span>
+                            ) : (
+                              <span className="bg-stamp text-paper border border-ink px-1.5 py-0.5 text-[9px] font-bold font-display uppercase stamp-shadow">
+                                {item.status}
+                              </span>
+                            )}
+                          </div>
 
-                        {/* Content details bottom aligned */}
-                        <div className="absolute bottom-3 left-3 right-3 space-y-1 text-paper">
-                          <span className="font-mono text-[9px] uppercase text-paper/70 tracking-wider">
-                            {item.id} · {item.category.slice(0, 16)}
-                          </span>
-                          <h4 className="font-display font-semibold text-lg leading-none tracking-tight line-clamp-2">
-                            {item.title}
-                          </h4>
-                          <div className="flex justify-between items-center pt-1 border-t border-paper/15 text-[10px] font-sans">
-                            <span className="text-paper/80 font-medium uppercase">
-                              {item.status === 'RESOLVED' ? 'Fixed' : `Day ${elapsedDays} of waiting`}
+                          {/* Content details bottom aligned */}
+                          <div className="absolute bottom-3 left-3 right-3 space-y-1 text-paper">
+                            <span className="font-mono text-[9px] uppercase text-paper/70 tracking-wider">
+                              {item.id} · {item.category.slice(0, 16)}
                             </span>
-                            <span className="font-mono text-[9px] font-semibold bg-paper/20 px-1 py-0.5">
-                              {item.status === 'RESOLVED' ? 'Verified' : `HARM ${item.harmScore}`}
-                            </span>
+                            <h4 className="font-display font-semibold text-lg leading-none tracking-tight line-clamp-2">
+                              {item.title}
+                            </h4>
+                            <div className="flex justify-between items-center pt-1 border-t border-paper/15 text-[10px] font-sans">
+                              <span className="text-paper/80 font-medium uppercase">
+                                {item.status === 'RESOLVED' ? 'Fixed' : `Day ${elapsedDays} of waiting`}
+                              </span>
+                              <span className="font-mono text-[9px] font-semibold bg-paper/20 px-1 py-0.5">
+                                {item.status === 'RESOLVED' ? 'Verified' : `HARM ${item.harmScore}`}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
@@ -1625,6 +1781,28 @@ export default function CivicProofApp() {
 
                 {/* Chunky Map Pins rendering (Section 7.3) */}
                 <div className="absolute inset-0 pointer-events-none">
+                  {storageUnavailable && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="bg-paper border-2 border-breach text-center p-4 font-sans text-xs text-ink uppercase tracking-wider stamp-shadow pointer-events-auto max-w-xs">
+                        “Civic record storage is unavailable right now. Please try again.”
+                      </div>
+                    </div>
+                  )}
+
+                  {!storageUnavailable && cases.filter(c => {
+                    if (mapFilter === 'active') return c.status !== 'RESOLVED';
+                    if (mapFilter === 'resolved') return c.status === 'RESOLVED';
+                    if (mapFilter === 'breached') return c.status === 'BREACHED';
+                    if (mapFilter === 'mine') return c.corroborations.some(co => co.contributorName === "You" || co.contributorName === "You (Original Reporter)");
+                    return true;
+                  }).length === 0 && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="bg-paper border-2 border-ink p-4 font-sans text-xs text-ink uppercase tracking-wider stamp-shadow pointer-events-auto">
+                        “No mapped civic cases yet.”
+                      </div>
+                    </div>
+                  )}
+
                   {cases
                     .filter(c => {
                       if (mapFilter === 'active') return c.status !== 'RESOLVED';
@@ -1884,12 +2062,25 @@ export default function CivicProofApp() {
                   </label>
 
                   <button 
+                    type="button"
                     onClick={handleToggleVoiceRecord}
+                    disabled={voiceStatus === 'transcribing'}
                     className={`flex-1 h-12 border border-ink font-sans text-xs font-bold active:translate-y-0.5 stamp-shadow flex items-center justify-center gap-1.5 ${
-                      isRecording ? 'bg-breach text-paper animate-pulse' : 'bg-paper text-ink hover:bg-ink/[0.04]'
+                      voiceStatus === 'recording' 
+                        ? 'bg-breach text-paper animate-pulse' 
+                        : voiceStatus === 'transcribing'
+                        ? 'bg-tally/20 text-ink cursor-wait'
+                        : 'bg-paper text-ink hover:bg-ink/[0.04]'
                     }`}
                   >
-                    <Mic className="w-4 h-4 text-stamp" /> {isRecording ? "Recording..." : "Vocal Testimony"}
+                    <Mic className="w-4 h-4 text-stamp" /> {
+                      voiceStatus === 'recording' ? "Recording… tap to stop" :
+                      voiceStatus === 'transcribing' ? "Transcribing voice note…" :
+                      voiceStatus === 'success' ? "Voice note transcribed as evidence." :
+                      voiceStatus === 'empty' ? "No clear speech detected. Try again or type manually." :
+                      voiceStatus === 'error' ? "Voice transcription is unavailable right now." :
+                      "Vocal Testimony"
+                    }
                   </button>
                 </div>
 
@@ -1900,7 +2091,12 @@ export default function CivicProofApp() {
                       <span>Vocal Testimony Transcript</span>
                       <span className="text-tally font-bold">Transcribed</span>
                     </div>
-                    <p className="italic text-ink/90">&ldquo;{voiceNotes}&rdquo;</p>
+                    <textarea
+                      value={voiceNotes}
+                      onChange={(e) => setVoiceNotes(e.target.value)}
+                      rows={3}
+                      className="w-full bg-transparent font-sans text-xs italic text-ink/90 outline-none border border-ink/20 p-1 resize-y focus:border-ink/50"
+                    />
                   </div>
                 )}
 
@@ -1908,9 +2104,33 @@ export default function CivicProofApp() {
                 <div className="flex justify-between items-center bg-chalk/5 border border-ink/15 p-2 rounded-sm text-xs font-mono">
                   <span className="text-chalk text-[10px] uppercase font-semibold">Voice Input dialect</span>
                   <div className="flex gap-1">
-                    <span className="px-1.5 py-0.5 bg-paper text-ink font-bold border border-ink select-none">हिं</span>
-                    <span className="px-1.5 py-0.5 bg-stamp text-paper font-bold border border-ink select-none">EN</span>
-                    <span className="px-1.5 py-0.5 bg-paper text-ink border border-ink/30 select-none text-chalk">MIX</span>
+                    <button
+                      type="button"
+                      onClick={() => { setVoiceMode('hi-IN'); triggerSound('tick'); }}
+                      className={`px-1.5 py-0.5 font-bold border select-none text-xs ${
+                        voiceMode === 'hi-IN' ? 'bg-stamp text-paper border-ink' : 'bg-paper text-ink border-ink/30 text-chalk hover:bg-ink/[0.04]'
+                      }`}
+                    >
+                      हिं
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setVoiceMode('en-IN'); triggerSound('tick'); }}
+                      className={`px-1.5 py-0.5 font-bold border select-none text-xs ${
+                        voiceMode === 'en-IN' ? 'bg-stamp text-paper border-ink' : 'bg-paper text-ink border-ink/30 text-chalk hover:bg-ink/[0.04]'
+                      }`}
+                    >
+                      EN
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setVoiceMode('mixed-IN'); triggerSound('tick'); }}
+                      className={`px-1.5 py-0.5 font-bold border select-none text-xs ${
+                        voiceMode === 'mixed-IN' ? 'bg-stamp text-paper border-ink' : 'bg-paper text-ink border-ink/30 text-chalk hover:bg-ink/[0.04]'
+                      }`}
+                    >
+                      MIX
+                    </button>
                   </div>
                 </div>
 

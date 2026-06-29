@@ -57,7 +57,8 @@ export async function POST(req: NextRequest) {
       finalCase = await repository.updateCase(parentId, updatedCase);
     } else {
       // Create new case file
-      finalCase = await repository.createCase(pipelineResult.case);
+      const newCaseWithOrigin = { ...pipelineResult.case, dataOrigin: "user_report" as const };
+      finalCase = await repository.createCase(newCaseWithOrigin);
     }
 
     return NextResponse.json({
