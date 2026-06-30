@@ -1,5 +1,5 @@
 import type {Metadata} from 'next';
-import { Bricolage_Grotesque, Geist, JetBrains_Mono } from 'next/font/google';
+import { Bricolage_Grotesque, Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css'; // Global styles
 
 export const metadata: Metadata = {
@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: 'CivicProof turns citizen reports into evidence-backed civic case files.',
 };
 
-export const dynamic = 'force-dynamic';
+
 
 const displayFont = Bricolage_Grotesque({
   subsets: ['latin'],
@@ -15,7 +15,7 @@ const displayFont = Bricolage_Grotesque({
   weight: ['400', '500', '600', '700', '800'],
 });
 
-const sansFont = Geist({
+const sansFont = Inter({
   subsets: ['latin'],
   variable: '--font-sans-loaded',
   weight: ['400', '500', '600', '700'],

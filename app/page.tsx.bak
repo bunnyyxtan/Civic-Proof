@@ -6,7 +6,7 @@
 // Built for Vibe2Ship Hackathon — Coding Ninjas x Google for Developers
 
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   MapPin, Camera, Mic, Volume2, Globe, Heart, FileText, CheckCircle, 
   AlertTriangle, ArrowRight, User, Home, ShieldAlert, Sparkles, X, 
@@ -876,8 +876,8 @@ export default function CivicProofApp() {
           <nav className="flex flex-col gap-2 font-sans text-xs font-bold uppercase">
             <button 
               onClick={() => { setActiveTab('home'); resetCaptureFlow(); }} 
-              className={`flex items-center gap-3 px-3 py-2.5 transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink ${
-                activeTab === 'home' ? 'bg-ink text-paper' : 'text-chalk hover:text-ink hover:bg-ink/[0.04]'
+              className={`flex items-center gap-3 px-3 py-2.5 border border-transparent hover:border-ink hover:bg-ink/[0.02] stamp-shadow-sm transition-all ${
+                activeTab === 'home' ? 'bg-ink text-paper border-ink' : 'text-chalk hover:text-ink'
               }`}
             >
               <Home className="w-4 h-4" />
@@ -886,8 +886,8 @@ export default function CivicProofApp() {
 
             <button 
               onClick={() => { setActiveTab('map'); resetCaptureFlow(); }} 
-              className={`flex items-center gap-3 px-3 py-2.5 transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink ${
-                activeTab === 'map' ? 'bg-ink text-paper' : 'text-chalk hover:text-ink hover:bg-ink/[0.04]'
+              className={`flex items-center gap-3 px-3 py-2.5 border border-transparent hover:border-ink hover:bg-ink/[0.02] stamp-shadow-sm transition-all ${
+                activeTab === 'map' ? 'bg-ink text-paper border-ink' : 'text-chalk hover:text-ink'
               }`}
             >
               <MapPin className="w-4 h-4" />
@@ -896,8 +896,8 @@ export default function CivicProofApp() {
 
             <button 
               onClick={() => { setActiveTab('cases'); resetCaptureFlow(); }} 
-              className={`flex items-center gap-3 px-3 py-2.5 transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink ${
-                activeTab === 'cases' ? 'bg-ink text-paper' : 'text-chalk hover:text-ink hover:bg-ink/[0.04]'
+              className={`flex items-center gap-3 px-3 py-2.5 border border-transparent hover:border-ink hover:bg-ink/[0.02] stamp-shadow-sm transition-all ${
+                activeTab === 'cases' ? 'bg-ink text-paper border-ink' : 'text-chalk hover:text-ink'
               }`}
             >
               <FileText className="w-4 h-4" />
@@ -906,8 +906,8 @@ export default function CivicProofApp() {
 
             <button 
               onClick={() => { setActiveTab('you'); resetCaptureFlow(); }} 
-              className={`flex items-center gap-3 px-3 py-2.5 transition-colors duration-150 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink ${
-                activeTab === 'you' ? 'bg-ink text-paper' : 'text-chalk hover:text-ink hover:bg-ink/[0.04]'
+              className={`flex items-center gap-3 px-3 py-2.5 border border-transparent hover:border-ink hover:bg-ink/[0.02] stamp-shadow-sm transition-all ${
+                activeTab === 'you' ? 'bg-ink text-paper border-ink' : 'text-chalk hover:text-ink'
               }`}
             >
               <User className="w-4 h-4" />
