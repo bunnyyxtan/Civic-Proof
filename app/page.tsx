@@ -202,7 +202,7 @@ export default function CivicProofApp() {
   
   const [detectedLocation, setDetectedLocation] = useState<GPSCoordinates | null>(null);
   const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
-  const [locationName, setLocationName] = useState<string>("Detecting location...");
+  const [locationName, setLocationName] = useState<string>("");
   const [locationConfirmed, setLocationConfirmed] = useState<boolean>(false);
   const [showTechDetails, setShowTechDetails] = useState<boolean>(false);
 
@@ -346,6 +346,10 @@ export default function CivicProofApp() {
       return "Indiranagar, BLR";
     }
     
+    if (locationConfirmed && locationName) {
+      return locationName;
+    }
+
     if (locationShortLabel) {
       return locationShortLabel;
     }
@@ -358,11 +362,11 @@ export default function CivicProofApp() {
   };
 
   const getProfileLocationText = () => {
-    if (locationShortLabel && locationShortLabel !== "Location detected nearby") {
-      return locationShortLabel;
+    if (locationConfirmed && locationName) {
+      return locationName;
     }
-    if (locationConfirmed) {
-      return locationShortLabel || locality || city || locationName || "Location not set";
+    if (locationShortLabel) {
+      return locationShortLabel;
     }
     
     const myCases = cases.filter(c => c.corroborations.some(corr => corr.contributorName === "You (Original Reporter)"));
@@ -647,105 +651,106 @@ export default function CivicProofApp() {
   }, []);
 
   const detectLocation = (isBackgroundUpdate = false) => {
-    if (navigator.geolocation) {
+    if (!navigator.geolocation) {
       if (!isBackgroundUpdate) {
-        setLocationName("Detecting address...");
-        setLocationAccuracy(null);
-        setDetectedLocation(null);
+        setLocationName("");
         setLocationSource("unknown");
+        console.warn("Geolocation is not supported by this browser.");
       }
+      return;
+    }
 
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setDetectedLocation({
+    if (!isBackgroundUpdate) {
+      setLocationName("Detecting location...");
+      setLocationAccuracy(null);
+      setDetectedLocation(null);
+      setLocationSource("unknown");
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setDetectedLocation({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          address: ''
+        });
+        setLocationAccuracy(pos.coords.accuracy);
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+        fetch("/api/location/reverse-geocode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude,
-            address: ''
-          });
-          setLocationAccuracy(pos.coords.accuracy);
-          if (!isBackgroundUpdate) setLocationName("Detecting address...");
-          
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-          fetch("/api/location/reverse-geocode", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              latitude: pos.coords.latitude,
-              longitude: pos.coords.longitude,
-              accuracyMeters: pos.coords.accuracy
-            }),
-            signal: controller.signal
+            accuracyMeters: pos.coords.accuracy
+          }),
+          signal: controller.signal
+        })
+          .then(res => {
+            clearTimeout(timeoutId);
+            return res.json();
           })
-            .then(res => {
-              clearTimeout(timeoutId);
-              return res.json();
-            })
-            .then(data => {
-              if (data.ok && data.data) {
-                const details = data.data;
-                setLocationName(details.shortLabel || "Location detected nearby — add a landmark");
-                setLocationShortLabel(details.shortLabel || "");
-                setFormattedAddress(details.formattedAddress || "");
-                setLocality(details.locality || "");
-                setCity(details.city || "");
-                setStateName(details.state || "");
-                setCountryName(details.country || "");
-                setLocationSource("gps");
-                const capturedAt = new Date().toISOString();
-                setGeolocationCapturedAt(capturedAt);
+          .then(data => {
+            if (data.ok && data.data) {
+              const details = data.data;
+              setLocationName(details.shortLabel || "");
+              setLocationShortLabel(details.shortLabel || "");
+              setFormattedAddress(details.formattedAddress || "");
+              setLocality(details.locality || "");
+              setCity(details.city || "");
+              setStateName(details.state || "");
+              setCountryName(details.country || "");
+              setLocationSource("gps");
+              const capturedAt = new Date().toISOString();
+              setGeolocationCapturedAt(capturedAt);
 
-                saveLocationState({
-                  detectedLocation: {
-                    latitude: pos.coords.latitude,
-                    longitude: pos.coords.longitude,
-                    address: details.shortLabel || "Location detected nearby — add a landmark"
-                  },
-                  locationAccuracy: pos.coords.accuracy,
-                  locationName: details.shortLabel || "Location detected nearby — add a landmark",
-                  locationShortLabel: details.shortLabel || "",
-                  formattedAddress: details.formattedAddress || "",
-                  locality: details.locality || "",
-                  city: details.city || "",
-                  stateName: details.state || "",
-                  countryName: details.country || "",
-                  locationSource: "gps",
-                  geolocationCapturedAt: capturedAt
-                });
-              } else {
-                setLocationName("Location detected nearby — add a landmark");
-                setLocationShortLabel("Location detected nearby");
-                setLocationSource("gps");
-                setGeolocationCapturedAt(new Date().toISOString());
-              }
-            })
-            .catch(err => {
-              console.error("Reverse geocoding failed client-side:", err);
-              setLocationName("Location detected nearby — add a landmark");
-              setLocationShortLabel("Location detected nearby");
+              saveLocationState({
+                detectedLocation: {
+                  latitude: pos.coords.latitude,
+                  longitude: pos.coords.longitude,
+                  address: details.shortLabel || ""
+                },
+                locationAccuracy: pos.coords.accuracy,
+                locationName: details.shortLabel || "",
+                locationShortLabel: details.shortLabel || "",
+                formattedAddress: details.formattedAddress || "",
+                locality: details.locality || "",
+                city: details.city || "",
+                stateName: details.state || "",
+                countryName: details.country || "",
+                locationSource: "gps",
+                geolocationCapturedAt: capturedAt
+              });
+            } else {
+              setLocationName("Location detected nearby — add landmark");
+              setLocationShortLabel("LOCATION DETECTED");
               setLocationSource("gps");
               setGeolocationCapturedAt(new Date().toISOString());
-            });
-        },
-        (err) => {
-          setLocationName("Location not detected — add manually");
+            }
+          })
+          .catch(err => {
+            console.error("Reverse geocoding failed client-side:", err);
+            setLocationName("Location detected nearby — add landmark");
+            setLocationShortLabel("LOCATION DETECTED");
+            setLocationSource("gps");
+            setGeolocationCapturedAt(new Date().toISOString());
+          });
+      },
+      (err) => {
+        if (!isBackgroundUpdate) {
+          setLocationName("");
           setLocationSource("unknown");
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
-      );
-    }
+        }
+        console.warn(`Geolocation error (${err.code}): ${err.message}`);
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+    );
   };
 
-  useEffect(() => {
-    let active = true;
-    if (captureStep === 1 && !detectedLocation) {
-      setTimeout(() => {
-        if (active) detectLocation();
-      }, 0);
-    }
-    return () => { active = false; };
-  }, [captureStep]);
+
 
   const getConfidenceLabel = (accuracy: number | null) => {
     if (accuracy === null) return "Location not detected";
@@ -781,7 +786,7 @@ export default function CivicProofApp() {
     const targetNotes = userNotes;
     const targetVoice = voiceNotes || "";
 
-    const isTempLocationName = locationName === "Detecting location..." || locationName === "Detecting address..." || locationName === "Location not detected — add manually" || locationName === "Location detected nearby — add a landmark";
+    const isTempLocationName = locationName === "Detecting location..." || locationName === "Detecting address...";
     
     const finalLocationName = isTempLocationName && locationConfirmed === false ? "Unspecified location" : (locationName || "");
 
@@ -922,7 +927,7 @@ export default function CivicProofApp() {
     setMatchingNearby(null);
     setDetectedLocation(null);
     setLocationAccuracy(null);
-    setLocationName("Detecting location...");
+    setLocationName("");
     setLocationConfirmed(false);
     setLocationShortLabel("");
     setFormattedAddress("");
@@ -2849,7 +2854,7 @@ export default function CivicProofApp() {
                           value={locationName}
                           onChange={(e) => handleLocationNameChange(e.target.value)}
                           onFocus={(e) => {
-                            if (e.target.value === "Location detected nearby — add a landmark" || e.target.value === "Detecting location..." || e.target.value === "Location not detected — add manually") {
+                            if (e.target.value === "Location detected nearby — add landmark" || e.target.value === "Detecting location...") {
                               setLocationName("");
                             }
                           }}
@@ -2884,13 +2889,13 @@ export default function CivicProofApp() {
                               ? "GPS is approximate. Please add a precise landmark for accurate routing." 
                               : "GPS is nearby. Confirm or add a landmark (e.g. opposite HDFC Bank)."}
                           </p>
-                          {(locationSource === 'unknown' || locationName === 'Location detected nearby — add a landmark') && (
+                          {(locationSource === 'unknown' || locationName === 'Location detected nearby — add landmark') && (
                             <button
                               type="button"
-                              onClick={detectLocation}
+                              onClick={() => detectLocation(false)}
                               className="text-[9px] uppercase font-bold text-ink underline"
                             >
-                              Retry Lookup
+                              {detectedLocation ? "Retry Lookup" : "Detect current location"}
                             </button>
                           )}
                         </div>
@@ -2921,7 +2926,7 @@ export default function CivicProofApp() {
                       <button 
                         type="button"
                         onClick={() => { 
-                          if (locationName && locationName.trim() !== "" && locationName !== "Detecting location..." && locationName !== "Detecting address..." && locationName !== "Location not detected. Type a landmark manually." && locationName !== "Location not detected — add manually" && locationName !== "Location detected nearby — add a landmark") {
+                          if (locationName && locationName.trim() !== "" && locationName !== "Detecting location...") {
                             setLocationConfirmed(true); 
                             triggerSound('tick'); 
                             const didUserModify = !locationShortLabel || locationName.trim() !== locationShortLabel.trim();
@@ -2937,9 +2942,9 @@ export default function CivicProofApp() {
                             triggerToast("Please type a location name or landmark first.", "breach");
                           }
                         }}
-                        disabled={!locationName || locationName.trim() === "" || locationName === "Detecting location..." || locationName === "Detecting address..." || locationName === "Location not detected. Type a landmark manually." || locationName === "Location not detected — add manually" || locationName === "Location detected nearby — add a landmark"}
+                        disabled={!locationName || locationName.trim() === "" || locationName === "Detecting location..."}
                         className={`w-full h-10 border border-ink font-sans text-xs font-bold uppercase stamp-shadow active:translate-y-0.5 ${
-                          !locationName || locationName.trim() === "" || locationName === "Detecting location..." || locationName === "Detecting address..." || locationName === "Location not detected. Type a landmark manually." || locationName === "Location not detected — add manually" || locationName === "Location detected nearby — add a landmark"
+                          !locationName || locationName.trim() === "" || locationName === "Detecting location..."
                             ? "bg-ink/10 text-chalk cursor-not-allowed border-ink/20 shadow-none"
                             : "bg-paper text-ink hover:bg-ink/[0.04]"
                         }`}
