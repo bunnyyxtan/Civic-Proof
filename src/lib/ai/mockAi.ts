@@ -158,13 +158,13 @@ Generated: ${new Date(generatedAt).toLocaleDateString()}
 TO,
 The Designated Grievance Officer,
 ${department},
-Bengaluru Urban.
+Municipal Administration.
 
 SUBJECT: Formal Representation regarding persistent neglected public defect: "${title}" (${category}) at GPS: ${gpsString}.
 
 Sir/Madam,
 
-Under Section 58 of the Karnataka Municipal Corporations Act, we hereby submit formal evidentiary proof of a critical municipal failure that has remained unaddressed on our street for ${elapsedDays} days, despite posing active risks to public health and pedestrian safety.
+Under the Municipal Corporations Act and Citizen's Charter, we hereby submit formal evidentiary proof of a critical municipal failure that has remained unaddressed on our street for ${elapsedDays} days, despite posing active risks to public health and pedestrian safety.
 
 The localized issue has been recorded, cataloged, and backed by independent community-level verification. Below is the technical inspection and evidence summary:
 
@@ -173,7 +173,7 @@ ${analysisText}
 
 LOCATION LOGS:
 • GPS Coordinates: ${gpsString}
-• Locality Jurisdiction: Indiranagar Ward Office
+• Locality Jurisdiction: Local Ward Office
 • Verified Proof File: Sealed under cryptographic reference ID ${caseId}-PROOF-01
 
 CITIZEN INJUNCTION & REQUESTED ACTION:
@@ -182,7 +182,7 @@ We urge your department to initiate an immediate physical inspection and deploy 
 We expect a formal response indicating status updates and the assigned engineering supervisor's details.
 
 Yours faithfully,
-The Citizens of Bengaluru
+The Concerned Citizens
 (Verified through CivicProof — Public Grievance Verification Ledger)`;
 
   return {
@@ -216,8 +216,7 @@ Generated: ${new Date(generatedAt).toLocaleDateString()}
 
 TO,
 The Joint Commissioner (Grievance Desk),
-Municipal Ward Head Office,
-Bengaluru Urban.
+Municipal Ward Head Office.
 
 SUBJECT: Escalation regarding persistent department inaction over critical safety hazard: "${title}" - Ignored for ${elapsedDays} Days (SLA BREACH).
 
@@ -243,8 +242,7 @@ Please find attached the complete evidentiary file, GPS coordinate ledger, and t
 We expect immediate disciplinary routing and public transparency on this critical issue.
 
 Respectfully submitted,
-Verified Neighbor Coalition
-Bengaluru District`;
+Verified Neighbor Coalition`;
 
   return {
     escalationReason: `Official citizen charter resolution timeline exceeded by ${elapsedDays} days.`,

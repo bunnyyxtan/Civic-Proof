@@ -19,8 +19,8 @@ This checklist documents the testing steps, regression verifications, and system
 
 ## 🔌 3. Core API Endpoint Tests
 * [ ] **Case Feed (`GET /api/cases`)**: Verify that calling this route returns an `ok: true` state and an array of existing cases.
-* [ ] **Persistence Health (`GET /api/demo/persistence-health`)**: Run a request to verify the service status shows connected or gracefully routes to `mock_active` when keys are unconfigured.
-* [ ] **DB Hydration (`POST /api/demo/seed-cases`)**: Confirm database seed routes populate mock items successfully.
+* [ ] **Persistence Health (`GET /api/demo/persistence-health`)**: Run a request to verify the service status shows connected or gracefully routes to `local_storage_active` when keys are unconfigured.
+* [ ] **DB Hydration (`POST /api/demo/seed-cases`)**: Confirm database seed routes populate standard items successfully.
 * [ ] **Engine Smoke Suite (`GET /api/demo/engine-smoke`)**: Verify the response output has `success: true` and all assertions under the `validation` schema pass.
 * [ ] **AI Model Check (`GET /api/demo/ai-health`)**: Confirm the endpoint detects whether Gemini is loaded and displays the exact model configuration in use.
 
@@ -44,7 +44,7 @@ This checklist documents the testing steps, regression verifications, and system
 
 ## 🤖 6. Gemini Integration & Fallbacks
 * [ ] **Active API Verification**: Submit a voice/text report on the main dashboard with an active `GEMINI_API_KEY` to ensure the NLP extraction works and populates timeline structures.
-* [ ] **Fallback Ingestion**: Set a forced mock mode or remove the Gemini key, and confirm that the local procedural fallback takes over, allowing full usage with smart heuristic categorization.
+* [ ] **Fallback Ingestion**: Remove the Gemini key, and confirm that the local procedural fallback takes over, allowing full usage with heuristic categorization.
 
 ---
 

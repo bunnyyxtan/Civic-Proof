@@ -1,7 +1,0 @@
-/app/applet
-├── package-lock.json
-├── tree.txt
-└── tree_root.txt
-
-file: 3
-

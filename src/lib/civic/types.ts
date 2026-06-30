@@ -149,8 +149,17 @@ export interface CivicIssue {
   locationName: string;
   latitude: number;
   longitude: number;
+  locationAccuracyMeters?: number;
+  locationConfirmedByUser?: boolean;
+  locationSource?: 'gps' | 'manual' | 'gps_plus_manual' | 'unknown';
   ward?: string;
   city?: string;
+  locationShortLabel?: string;
+  formattedAddress?: string;
+  locality?: string;
+  state?: string;
+  country?: string;
+  geolocationCapturedAt?: string;
   reportedAt: string;
   lastMeaningfulActionAt?: string;
   slaDays: number;
@@ -166,4 +175,10 @@ export interface CivicIssue {
   complaintPacket?: ComplaintPacket;
   escalationPacket?: EscalationPacket;
   resolutionVerification?: ResolutionVerification;
+  // Infrastructure auditing and idempotency fields
+  createdByUid?: string;
+  clientSubmissionId?: string;
+  idempotencyKey?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }

@@ -22,12 +22,37 @@ export interface Corroboration {
   additionalPhotoUrl?: string;
 }
 
+export interface CivicEvidence {
+  id: string;
+  type: "photo";
+  imageUrl?: string;
+  storagePath?: string;
+  caption?: string;
+  uploadedAt: string;
+  uploadedByUid?: string;
+}
+
+export interface ImpactSignal {
+  id: string;
+  note: string;
+  chips: string[];
+  createdAt: string;
+  createdByUid?: string;
+}
+
+export interface ActiveConfirmation {
+  id: string;
+  confirmedAt: string;
+  confirmedByUid?: string;
+  note?: string;
+}
+
 export interface TimelineEvent {
   id: string;
   timestamp: string;
   title: string;
   description: string;
-  type: 'file' | 'route' | 'corroborate' | 'review' | 'breach' | 'resolve' | 'escalate';
+  type: 'file' | 'route' | 'corroborate' | 'review' | 'breach' | 'resolve' | 'escalate' | 'evidence_added' | 'impact_note_added' | 'active_confirmation_added';
   actorName?: string;
 }
 
@@ -55,12 +80,25 @@ export interface CivicCase {
   category: 'Water Overflow' | 'Pothole & Road Damage' | 'Garbage Dump' | 'Power Line Danger' | 'Traffic & Footpath Obstruction';
   department: string;
   gps: GPSCoordinates;
+  locationAccuracyMeters?: number;
+  locationConfirmedByUser?: boolean;
+  locationSource?: 'gps' | 'manual' | 'gps_plus_manual' | 'unknown';
+  locationShortLabel?: string;
+  formattedAddress?: string;
+  locality?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  geolocationCapturedAt?: string;
   photoUrl: string;
   filedAt: string; // ISO String
   status: CaseStatus;
   harmScore: number; // 1 to 100
   harmScoreBreakdown: HarmScoreBreakdown;
   corroborations: Corroboration[];
+  evidence?: CivicEvidence[];
+  impactSignals?: ImpactSignal[];
+  activeConfirmations?: ActiveConfirmation[];
   timeline: TimelineEvent[];
   complaintPacket: ComplaintPacket | null;
   escalationPacket: ComplaintPacket | null;
@@ -96,17 +134,35 @@ export function findMatchingNearbyCase(
 ): CivicCase | null {
   const thresholdMeters = 450; // Proximity zone for "neighborhood corroboration"
   
+  // If accuracy is low (accuracyMeters > 100) and no user landmark is typed/confirmed
+  // (e.g. address is empty, or placeholder like "Location detected nearby — add a landmark"),
+  // then do not auto-merge aggressively (return null so we don't automatically prompt for merge).
+  const isAccuracyLow = newGps.accuracyMeters !== undefined && newGps.accuracyMeters > 100;
+  const isNoLandmark = !newGps.address || 
+    newGps.address.trim() === "" || 
+    newGps.address.toLowerCase().includes("location detected nearby") ||
+    newGps.address.toLowerCase().includes("location not detected");
+
+  if (isAccuracyLow && isNoLandmark) {
+    return null; // Do not auto-merge aggressively
+  }
+
   for (const item of existingCases) {
     if (item.status === 'RESOLVED') continue;
     if (item.category === newCategory) {
       if (newGps.latitude === null || newGps.longitude === null || item.gps.latitude === null || item.gps.longitude === null) {
         // If coordinates missing, use text similarity (basic match on address)
         if (newGps.address && item.gps.address && newGps.address.toLowerCase() === item.gps.address.toLowerCase()) {
-          return item; // Recommend review instead of merge ideally, but we return item for now
+          return item;
         }
       } else {
         const distance = getGPSDistanceInMeters(newGps, item.gps);
         if (distance <= thresholdMeters) {
+          // Double check if item has low accuracy and no descriptive landmark
+          const itemAccuracyLow = item.locationAccuracyMeters !== undefined && item.locationAccuracyMeters > 100;
+          if (itemAccuracyLow && isNoLandmark) {
+            continue; // Skip auto-merge if either has low accuracy and no descriptive landmark
+          }
           return item;
         }
       }
@@ -119,15 +175,15 @@ export function findMatchingNearbyCase(
 export function routeToDepartment(category: CivicCase['category']): string {
   switch (category) {
     case 'Water Overflow':
-      return 'Bangalore Water Supply and Sewerage Board (BWSSB)';
+      return 'Municipal Water Supply and Sewerage Board';
     case 'Pothole & Road Damage':
-      return 'Bruhat Bengaluru Mahanagara Palike (BBMP) - Road Infrastructure Dept';
+      return 'Municipal Road Infrastructure Department';
     case 'Garbage Dump':
-      return 'BBMP Solid Waste Management Division';
+      return 'Municipal Solid Waste Management Division';
     case 'Power Line Danger':
-      return 'Bangalore Electricity Supply Company (BESCOM)';
+      return 'Municipal Electricity Supply Company';
     case 'Traffic & Footpath Obstruction':
-      return 'Bengaluru Traffic Police & BBMP Footpath Division';
+      return 'Traffic Police & Footpath Division';
     default:
       return 'Municipal Corporation Ward Administration';
   }

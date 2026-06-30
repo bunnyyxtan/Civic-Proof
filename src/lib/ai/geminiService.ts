@@ -1,6 +1,8 @@
 // src/lib/ai/geminiService.ts
 // Direct Gemini API invocation handlers
 
+import fs from "fs";
+import path from "path";
 import { getGeminiClient } from "./geminiClient";
 import { getMultimodalModelName, getTextModelName } from "./modelConfig";
 import { ReportIntake, AIAnalysisResult, ComplaintPacket, EscalationPacket, ResolutionVerification } from "../civic/types";
@@ -12,19 +14,74 @@ import {
   buildResolutionPrompt,
 } from "./prompts";
 import { ISSUE_CATEGORIES } from "../civic/constants";
+import { AI_TIMEOUTS } from "./aiTimeouts";
 
-// Helper to clean base64 image strings
-function parseBase64Image(dataUrl: string): { mimeType: string; data: string } | null {
-  if (!dataUrl || !dataUrl.startsWith("data:")) return null;
-  try {
-    const parts = dataUrl.split(",");
-    const meta = parts[0];
-    const base64 = parts[1];
-    const mimeType = meta.split(";")[0].split(":")[1];
-    return { mimeType, data: base64 };
-  } catch (err) {
-    return null;
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`AI Timeout: ${label} exceeded ${ms}ms`)), ms)
+    )
+  ]);
+}
+
+// Helper to load image inline data for Gemini supporting data URLs, remote URLs, and local files
+async function getImagePart(url: string): Promise<{ mimeType: string; data: string } | null> {
+  if (!url) return null;
+
+  if (url.startsWith("data:image/")) {
+    try {
+      const parts = url.split(",");
+      if (parts.length < 2) return null;
+      const meta = parts[0];
+      const base64 = parts[1];
+      const mimeType = meta.split(";")[0].split(":")[1] || "image/jpeg";
+      return { mimeType, data: base64 };
+    } catch (err) {
+      console.error("getImagePart failed for base64:", err);
+      return null;
+    }
   }
+
+  if (url.startsWith("http")) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const arrayBuffer = await res.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const mimeType = res.headers.get("content-type") || "image/jpeg";
+        return {
+          mimeType,
+          data: buffer.toString("base64"),
+        };
+      }
+    } catch (err) {
+      console.error("getImagePart failed to fetch remote url:", url, err);
+      return null;
+    }
+  }
+
+  if (url.startsWith("/")) {
+    try {
+      const filePath = path.join(process.cwd(), "public", url);
+      if (fs.existsSync(filePath)) {
+        const buffer = fs.readFileSync(filePath);
+        const ext = path.extname(filePath).toLowerCase();
+        let mimeType = "image/jpeg";
+        if (ext === ".png") mimeType = "image/png";
+        else if (ext === ".gif") mimeType = "image/gif";
+        else if (ext === ".webp") mimeType = "image/webp";
+        return {
+          mimeType,
+          data: buffer.toString("base64"),
+        };
+      }
+    } catch (err) {
+      console.error("getImagePart failed to read local file:", url, err);
+    }
+  }
+
+  return null;
 }
 
 export async function analyzeReportWithGemini(report: ReportIntake): Promise<AIAnalysisResult> {
@@ -35,7 +92,7 @@ export async function analyzeReportWithGemini(report: ReportIntake): Promise<AIA
   const prompt = buildAnalysisPrompt(contextText, categoriesList);
 
   const contents: any[] = [];
-  const imagePart = report.imageDataUrl ? parseBase64Image(report.imageDataUrl) : null;
+  const imagePart = report.imageDataUrl ? await getImagePart(report.imageDataUrl) : null;
   
   if (imagePart) {
     contents.push({
@@ -47,13 +104,17 @@ export async function analyzeReportWithGemini(report: ReportIntake): Promise<AIA
   }
   contents.push({ text: prompt });
 
-  const response = await ai.models.generateContent({
-    model: getMultimodalModelName(),
-    contents: contents,
-    config: {
-      responseMimeType: "application/json",
-    },
-  });
+  const response = await withTimeout(
+    ai.models.generateContent({
+      model: getMultimodalModelName(),
+      contents: contents,
+      config: {
+        responseMimeType: "application/json",
+      },
+    }),
+    AI_TIMEOUTS.reportAnalysis,
+    "Report Analysis"
+  );
 
   const text = response.text;
   if (!text) {
@@ -91,13 +152,17 @@ export async function generateComplaintWithGemini(
   const ai = getGeminiClient();
   const prompt = buildComplaintPrompt(caseId, title, category, department, gpsString, elapsedDays, analysisText);
 
-  const response = await ai.models.generateContent({
-    model: getTextModelName(),
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-    },
-  });
+  const response = await withTimeout(
+    ai.models.generateContent({
+      model: getTextModelName(),
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+      },
+    }),
+    AI_TIMEOUTS.complaintPacket,
+    "Complaint Packet Generation"
+  );
 
   const text = response.text;
   if (!text) {
@@ -131,13 +196,17 @@ export async function generateEscalationWithGemini(
   const ai = getGeminiClient();
   const prompt = buildEscalationPrompt(caseId, title, category, department, gpsString, elapsedDays, analysisText, corroborationCount);
 
-  const response = await ai.models.generateContent({
-    model: getTextModelName(),
-    contents: prompt,
-    config: {
-      responseMimeType: "application/json",
-    },
-  });
+  const response = await withTimeout(
+    ai.models.generateContent({
+      model: getTextModelName(),
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+      },
+    }),
+    AI_TIMEOUTS.escalationPacket,
+    "Escalation Packet Generation"
+  );
 
   const text = response.text;
   if (!text) {
@@ -166,7 +235,7 @@ export async function verifyResolutionWithGemini(
   const prompt = buildResolutionPrompt(originalDesc, citizenVerificationNote);
 
   const contents: any[] = [];
-  const imagePart = parseBase64Image(resolutionPhotoUrl);
+  const imagePart = resolutionPhotoUrl ? await getImagePart(resolutionPhotoUrl) : null;
   if (imagePart) {
     contents.push({
       inlineData: {
@@ -177,13 +246,17 @@ export async function verifyResolutionWithGemini(
   }
   contents.push({ text: prompt });
 
-  const response = await ai.models.generateContent({
-    model: getMultimodalModelName(),
-    contents: contents,
-    config: {
-      responseMimeType: "application/json",
-    },
-  });
+  const response = await withTimeout(
+    ai.models.generateContent({
+      model: getMultimodalModelName(),
+      contents: contents,
+      config: {
+        responseMimeType: "application/json",
+      },
+    }),
+    AI_TIMEOUTS.resolutionVerification,
+    "Resolution Verification"
+  );
 
   const text = response.text;
   if (!text) {

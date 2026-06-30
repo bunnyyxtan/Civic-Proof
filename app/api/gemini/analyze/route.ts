@@ -3,21 +3,78 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeReportSmart } from "@/src/lib/ai/geminiAdapters";
-import { calculateHarmScore, routeToDepartment, generateCaseId, CivicCase, CaseStatus } from "@/src/lib/civic/engine";
+import { calculateHarmScore, routeToDepartment, generateCaseId, CivicCase } from "@/src/lib/civic/engine";
 import { ReportIntake } from "@/src/lib/civic/types";
+import { saveImageLocally } from "@/src/lib/civic/imageStorage";
+import { verifyCitizenAuth } from "@/src/lib/auth/verifyAuth";
+import { checkRateLimit } from "@/src/lib/infra/rateLimiter";
+import { logAuditEvent } from "@/src/lib/infra/auditLog";
+import { logDeadLetter } from "@/src/lib/infra/deadLetter";
 
 export async function POST(req: NextRequest) {
-  try {
-    const { photoUrl, voiceTranscript, userNotes, gps, isVulnerable, voiceMode, manualCategory } = await req.json();
+  const body = await req.json().catch(() => ({}));
+  const { 
+    photoUrl, 
+    voiceTranscript, 
+    userNotes, 
+    gps, 
+    isVulnerable, 
+    voiceMode, 
+    manualCategory, 
+    citizenUid: bodyCitizenUid,
+    locationShortLabel,
+    formattedAddress,
+    locality,
+    city,
+    state,
+    country,
+    geolocationCapturedAt
+  } = body;
 
+  try {
     if (!photoUrl) {
       return NextResponse.json({ error: "photoUrl is required for evidence analysis" }, { status: 400 });
     }
 
-    // Adapt to domain schema input
+    // 1. Token Verification & Fallback Identity
+    const verifiedCitizen = await verifyCitizenAuth(req);
+    const citizenUid = verifiedCitizen?.uid || bodyCitizenUid || "anonymous_fallback";
+
+    // 2. Protect with Rate Limiting (30 AI requests per hour per user)
+    const limitCheck = await checkRateLimit(citizenUid, "ai_generation", 30, 1);
+    if (!limitCheck.allowed) {
+      await logAuditEvent({
+        eventType: "rate_limited",
+        citizenUid,
+        route: "/api/gemini/analyze",
+        severity: "warning",
+        metadata: { bucket: "ai_generation", limit: 30, count: limitCheck.count }
+      });
+      return NextResponse.json({
+        ok: false,
+        error: {
+          code: "RATE_LIMITED",
+          message: "Too many requests. Please try again shortly."
+        }
+      }, { status: 429 });
+    }
+
+    // Save image locally to get a lightweight static url
+    const localPhotoUrl = await saveImageLocally(photoUrl);
+
+    // Audit request initiation
+    await logAuditEvent({
+      eventType: "evidence_analysis_requested",
+      citizenUid,
+      route: "/api/gemini/analyze",
+      severity: "info",
+      metadata: { hasNotes: !!userNotes, hasVoice: !!voiceTranscript }
+    });
+
+    // Adapt to domain schema input (pass original image to Gemini for full high-fidelity analysis)
     const intake: ReportIntake = {
       imageDataUrl: photoUrl,
-      locationName: gps?.address || "Indiranagar, Bengaluru",
+      locationName: gps?.address || "Location detected nearby",
       latitude: gps?.latitude,
       longitude: gps?.longitude,
       citizenNote: userNotes || voiceTranscript,
@@ -69,8 +126,18 @@ export async function POST(req: NextRequest) {
       voiceMode: voiceMode || undefined,
       category: mappedCategory,
       department: routedDept,
-      gps: gps || { latitude: 12.9716, longitude: 77.6412, address: "Indiranagar, Bengaluru" },
-      photoUrl: photoUrl,
+      gps: gps || { latitude: 0, longitude: 0, address: "Location not detected" },
+      locationAccuracyMeters: body.locationAccuracyMeters ?? gps?.accuracyMeters,
+      locationConfirmedByUser: body.locationConfirmedByUser ?? gps?.confirmedByUser ?? false,
+      locationSource: body.locationSource || (gps ? "gps" : "unknown"),
+      locationShortLabel: locationShortLabel || body.locationShortLabel || gps?.locationShortLabel || undefined,
+      formattedAddress: formattedAddress || body.formattedAddress || gps?.formattedAddress || undefined,
+      locality: locality || body.locality || gps?.locality || undefined,
+      city: city || body.city || gps?.city || undefined,
+      state: state || body.state || gps?.state || undefined,
+      country: country || body.country || gps?.country || undefined,
+      geolocationCapturedAt: geolocationCapturedAt || body.geolocationCapturedAt || gps?.geolocationCapturedAt || undefined,
+      photoUrl: localPhotoUrl,
       filedAt: new Date().toISOString(),
       status: "FILED",
       harmScore: score,
@@ -107,6 +174,16 @@ export async function POST(req: NextRequest) {
       authorityLastSeenAt: null
     };
 
+    // Audit completion
+    await logAuditEvent({
+      eventType: "evidence_analyzed",
+      caseId,
+      citizenUid,
+      route: "/api/gemini/analyze",
+      severity: "info",
+      metadata: { category: mappedCategory, suggestedTitle: analysis.suggestedTitle }
+    });
+
     // Return exact signature expected by the frontend
     return NextResponse.json({
       success: true,
@@ -124,6 +201,15 @@ export async function POST(req: NextRequest) {
 
   } catch (err: any) {
     console.error("API Analyze post failed:", err);
+
+    await logDeadLetter({
+      route: "/api/gemini/analyze",
+      operation: "evidence_analysis",
+      errorMessage: err.message || "Unknown error occurred",
+      payload: { voiceTranscript, userNotes, gps },
+      retryable: true,
+    });
+
     return NextResponse.json({ error: err.message || "Failed to analyze evidence" }, { status: 500 });
   }
 }

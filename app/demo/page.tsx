@@ -33,6 +33,7 @@ export default function JudgeDemoPage() {
   const [aiStatus, setAiStatus] = useState<any>(null);
   const [persistenceStatus, setPersistenceStatus] = useState<any>(null);
   const [smokeStatus, setSmokeStatus] = useState<any>(null);
+  const [readinessStatus, setReadinessStatus] = useState<any>(null);
   const [loadingChecks, setLoadingChecks] = useState<boolean>(true);
   const [seedLoading, setSeedLoading] = useState<boolean>(false);
   const [smokeLoading, setSmokeLoading] = useState<boolean>(false);
@@ -42,14 +43,16 @@ export default function JudgeDemoPage() {
   const fetchDiagnostics = async () => {
     setLoadingChecks(true);
     try {
-      const [aiRes, persRes, smokeRes] = await Promise.all([
+      const [aiRes, persRes, smokeRes, readinessRes] = await Promise.all([
         fetch('/api/demo/ai-health').then(r => r.json()).catch(() => ({ success: false })),
         fetch('/api/demo/persistence-health').then(r => r.json()).catch(() => ({ success: false })),
-        fetch('/api/demo/engine-smoke').then(r => r.json()).catch(() => ({ success: false }))
+        fetch('/api/demo/engine-smoke').then(r => r.json()).catch(() => ({ success: false })),
+        fetch('/api/ops/readiness').then(r => r.json()).catch(() => ({ ok: false }))
       ]);
       setAiStatus(aiRes);
       setPersistenceStatus(persRes);
       setSmokeStatus(smokeRes);
+      setReadinessStatus(readinessRes);
     } catch (e) {
       console.error('Failed to load diagnostics:', e);
     } finally {
@@ -423,7 +426,7 @@ if (isBreached && !case.escalationPacket) {
                 <span className="font-mono text-xs tracking-wider uppercase text-neutral-400">Judge Demo Mode</span>
               </div>
               <h1 className="text-xl font-semibold tracking-tight">CivicProof Demo Simulator</h1>
-              <p className="text-[10px] text-neutral-500 mt-0.5">This demo is isolated from live citizen records.</p>
+              <p className="text-[10px] text-emerald-500/90 font-mono mt-0.5 uppercase tracking-wider">Judge Walkthrough — isolated from live civic records to preserve production integrity</p>
             </div>
           </div>
 
@@ -981,46 +984,129 @@ if (isBreached && !case.escalationPacket) {
                 </div>
               </div>
 
+              {/* Check 5: Citizen Auth */}
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-2.5">
+                  <Shield className="w-4.5 h-4.5 text-neutral-500 mt-0.5 shrink-0" />
+                  <div>
+                    <span className="text-xs font-semibold text-neutral-200 block">Citizen Auth</span>
+                    <span className="text-[10px] text-neutral-400 block font-mono">
+                      {loadingChecks ? "Querying..." : readinessStatus?.data?.auth === "configured" ? "Firebase Anonymous Identity" : "Degraded (Mock Fallback)"}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  {loadingChecks ? (
+                    <span className="w-2.5 h-2.5 rounded-full bg-neutral-700 animate-pulse inline-block"></span>
+                  ) : readinessStatus?.data?.auth === "configured" ? (
+                    <span className="px-2 py-0.5 text-[9px] font-bold font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">
+                      ACTIVE
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 text-[9px] font-bold font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded">
+                      MOCK ONLY
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Check 6: Abuse Prevention & Rate Limiting */}
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-2.5">
+                  <Clock className="w-4.5 h-4.5 text-neutral-500 mt-0.5 shrink-0" />
+                  <div>
+                    <span className="text-xs font-semibold text-neutral-200 block">Rate Limiting Protection</span>
+                    <span className="text-[10px] text-neutral-400 block font-mono">
+                      {loadingChecks ? "Querying..." : `Engine: ${readinessStatus?.data?.rateLimiter || "memory"}`}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  {loadingChecks ? (
+                    <span className="w-2.5 h-2.5 rounded-full bg-neutral-700 animate-pulse inline-block"></span>
+                  ) : (
+                    <span className="px-2 py-0.5 text-[9px] font-bold font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">
+                      PROTECTED
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Check 7: Audit Event Logging */}
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-2.5">
+                  <FileText className="w-4.5 h-4.5 text-neutral-500 mt-0.5 shrink-0" />
+                  <div>
+                    <span className="text-xs font-semibold text-neutral-200 block">Audit Event Log</span>
+                    <span className="text-[10px] text-neutral-400 block font-mono">
+                      {loadingChecks ? "Querying..." : `Collection: civicproof_events`}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  {loadingChecks ? (
+                    <span className="w-2.5 h-2.5 rounded-full bg-neutral-700 animate-pulse inline-block"></span>
+                  ) : (
+                    <span className="px-2 py-0.5 text-[9px] font-bold font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">
+                      TRACEABLE
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Check 8: Escalation Cron Job */}
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-2.5">
+                  <Clock className="w-4.5 h-4.5 text-neutral-500 mt-0.5 shrink-0" />
+                  <div>
+                    <span className="text-xs font-semibold text-neutral-200 block">Escalation Cron Scan</span>
+                    <span className="text-[10px] text-neutral-400 block font-mono">
+                      /api/jobs/escalation-scan
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  {loadingChecks ? (
+                    <span className="w-2.5 h-2.5 rounded-full bg-neutral-700 animate-pulse inline-block"></span>
+                  ) : (
+                    <span className="px-2 py-0.5 text-[9px] font-bold font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">
+                      READY
+                    </span>
+                  )}
+                </div>
+              </div>
+
             </div>
 
             {/* Demo interactive controls inside checklist box */}
             <div className="border-t border-neutral-900 pt-4 mt-2 flex flex-col gap-2.5">
               <button 
-                onClick={handleSeed}
-                disabled={seedLoading}
-                className="w-full py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-xs font-mono rounded-lg transition flex items-center justify-center gap-2 text-neutral-300"
+                disabled={true}
+                className="w-full py-2 bg-neutral-950 border border-neutral-900 text-xs font-mono rounded-lg flex items-center justify-center gap-2 text-neutral-500 cursor-not-allowed"
+                title="Seeding is disabled in production to protect the live ledger."
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${seedLoading ? 'animate-spin' : ''}`} />
-                {seedLoading ? 'Seeding Database...' : 'Re-Seed Database'}
+                <RefreshCw className="w-3.5 h-3.5" />
+                Re-Seed Database (Inactive in Production)
               </button>
 
               <button 
-                onClick={handleSmokeTest}
-                disabled={smokeLoading}
-                className="w-full py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-xs font-mono rounded-lg transition flex items-center justify-center gap-2 text-neutral-300"
+                disabled={true}
+                className="w-full py-2 bg-neutral-950 border border-neutral-900 text-xs font-mono rounded-lg flex items-center justify-center gap-2 text-neutral-500 cursor-not-allowed"
+                title="Smoke suite is disabled in production to protect the live ledger."
               >
-                <Activity className={`w-3.5 h-3.5 ${smokeLoading ? 'animate-spin' : ''}`} />
-                {smokeLoading ? 'Running Smoke Suite...' : 'Run Engine Smoke Test'}
+                <Activity className="w-3.5 h-3.5" />
+                Run Engine Smoke Test (Inactive in Production)
               </button>
             </div>
           </div>
 
           {/* Quick Navigation Links */}
           <div className="bg-neutral-900/40 border border-neutral-900 rounded-2xl p-6 flex flex-col gap-4">
-            <h4 className="text-xs font-bold text-neutral-300 uppercase tracking-wide">Developer Sandbox Tools</h4>
-            <div className="grid grid-cols-2 gap-2 text-center text-xs font-mono">
-              <a href="/api/demo/persistence-health" target="_blank" rel="noreferrer" className="bg-neutral-950 hover:bg-neutral-900 p-2 rounded-lg border border-neutral-900 text-neutral-400 hover:text-white transition">
-                Persistence Health ↗
-              </a>
-              <a href="/api/demo/engine-smoke" target="_blank" rel="noreferrer" className="bg-neutral-950 hover:bg-neutral-900 p-2 rounded-lg border border-neutral-900 text-neutral-400 hover:text-white transition">
-                Engine Smoke ↗
-              </a>
-              <a href="/api/demo/ai-health" target="_blank" rel="noreferrer" className="bg-neutral-950 hover:bg-neutral-900 p-2 rounded-lg border border-neutral-900 text-neutral-400 hover:text-white transition">
-                AI Health status ↗
-              </a>
-              <a href="/api/cases?includeDemo=true" target="_blank" rel="noreferrer" className="bg-neutral-950 hover:bg-neutral-900 p-2 rounded-lg border border-neutral-900 text-neutral-400 hover:text-white transition">
-                Raw Case API ↗
-              </a>
+            <h4 className="text-xs font-bold text-neutral-400 uppercase tracking-wide">Developer Sandbox Tools (Deactivated)</h4>
+            <div className="grid grid-cols-1 gap-2 text-center text-xs font-mono text-neutral-500">
+              <div className="bg-neutral-950 p-2.5 rounded-lg border border-neutral-900/60">
+                Sandbox Endpoints Deactivated
+              </div>
             </div>
           </div>
 

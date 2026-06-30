@@ -24,6 +24,17 @@ export function isFirestoreConfigured(): boolean {
   return hasOptionA || hasOptionB;
 }
 
+export function getFirebaseAdminApp() {
+  if (!isFirestoreConfigured()) {
+    return null;
+  }
+  // ensure initialization
+  getFirestoreInstance();
+  const { getApps, getApp } = require("firebase-admin/app");
+  const apps = getApps();
+  return apps.length > 0 ? getApp() : null;
+}
+
 export function getFirestoreInstance(): any | null {
   if (!isFirestoreConfigured()) {
     return null;

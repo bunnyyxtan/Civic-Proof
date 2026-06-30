@@ -38,19 +38,16 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
                 try {
                   var orig = window.fetch;
                   if (orig) {
-                    var desc = Object.getOwnPropertyDescriptor(window, 'fetch');
-                    if (desc && (!desc.writable || desc.set === undefined) && desc.configurable) {
-                      var localFetch = orig;
-                      Object.defineProperty(window, 'fetch', {
-                        get: function() { return localFetch; },
-                        set: function(v) { 
-                          console.warn('window.fetch assignment intercepted and handled');
-                          localFetch = v; 
-                        },
-                        configurable: true,
-                        enumerable: true
-                      });
-                    }
+                    var localFetch = orig;
+                    Object.defineProperty(window, 'fetch', {
+                      get: function() { return localFetch; },
+                      set: function(v) { 
+                        console.warn('window.fetch assignment intercepted and handled');
+                        localFetch = v; 
+                      },
+                      configurable: true,
+                      enumerable: true
+                    });
                   }
                 } catch(e) {
                   console.error('Fetch patch failed:', e);

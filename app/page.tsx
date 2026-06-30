@@ -6,16 +6,21 @@
 // Built for Vibe2Ship Hackathon — Coding Ninjas x Google for Developers
 
 import React, { useState, useEffect, useRef } from 'react';
+import nextDynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   MapPin, Camera, Mic, Volume2, Globe, Heart, FileText, CheckCircle, 
   AlertTriangle, ArrowRight, User, Home, ShieldAlert, Sparkles, X, 
   Plus, Info, ChevronUp, Trash2, Sun, Moon, VolumeX, Shield, Clock,
-  ArrowLeft, Share2, Printer, Check, Radio, AlertCircle, Copy
+  ArrowLeft, Share2, Printer, Check, Radio, AlertCircle, Copy, Upload,
+  RefreshCw
 } from 'lucide-react';
 import { CivicCase, GPSCoordinates, CaseStatus, CorroborationType, checkSilenceClockBreach, getGPSDistanceInMeters, findMatchingNearbyCase, routeToDepartment, calculateHarmScore } from '@/src/lib/civic/engine';
 import { loadCases, saveCases, mapIssueToCase } from '@/src/lib/store';
 import { BrandWordmark } from '@/src/components/BrandWordmark';
+import { useCitizenAuth } from '@/src/lib/auth/useCitizenAuth';
+
+const MapComponent = nextDynamic(() => import('@/components/Map'), { ssr: false });
 
 // Web Audio API Synthesizer for tactile analog sound design (Moments 5.1, 5.2, 5.4)
 const playSound = (type: 'thup' | 'tick' | 'ding', isMuted: boolean) => {
@@ -83,53 +88,44 @@ const playSound = (type: 'thup' | 'tick' | 'ding', isMuted: boolean) => {
   }
 };
 
-// Simulated Preset Photos to make testing instant from turn zero
-const PHOTO_PRESETS = [
-  {
-    name: "Severe Asphalt Pothole",
-    url: "https://picsum.photos/seed/pothole/600/400",
-    notes: "Deep structural crater on Indiranagar 100 Feet Rd right past the junction. Massive hazard.",
-    category: "Pothole & Road Damage" as const,
-    voice: "There is a really deep crater right in the middle of 100 Feet Road past the signal. It is about six inches deep, vehicles are veering dangerously to avoid it.",
-    latitude: 12.9730,
-    longitude: 77.6411,
-    address: "100 Feet Road, Indiranagar, Bengaluru"
-  },
-  {
-    name: "BESCOM Dangling High-Voltage Wire",
-    url: "https://picsum.photos/seed/cable/600/400",
-    notes: "Overhead power line snapped and hanging over walking pavement. Extremely dangerous near children academy.",
-    category: "Power Line Danger" as const,
-    voice: "High voltage cable snapped and dangling down to the pavement. It's hanging right outside the academy gate, someone's going to get shocked, please fix immediately.",
-    latitude: 12.9752,
-    longitude: 77.6438,
-    address: "6th Cross Road, Indiranagar, Bengaluru"
-  },
-  {
-    name: "Ruptured Water Main Flooding Road",
-    url: "https://picsum.photos/seed/sewage/600/400",
-    notes: "Ruptured high pressure main pipe. Tons of clean water overflowing onto the streets.",
-    category: "Water Overflow" as const,
-    voice: "The main water line has burst near CMH Road. Thousands of liters of drinking water are pouring out onto the street, filling up the roadside drains.",
-    latitude: 12.9698,
-    longitude: 77.6395,
-    address: "Metro Pillar 120, CMH Road, Indiranagar, Bengaluru"
-  },
-  {
-    name: "Pavement Garbage Accumulation",
-    url: "https://picsum.photos/seed/garbage/600/400",
-    notes: "Illegal spontaneous plastic and waste dumping site expanding on the walk path.",
-    category: "Garbage Dump" as const,
-    voice: "There's a massive garbage heap accumulating right on the footpath. Pedestrians can't walk, it smells terrible and is blocking the drainage vents.",
-    latitude: 12.9710,
-    longitude: 77.6425,
-    address: "12th Main, 2nd Cross, Indiranagar, Bengaluru"
-  }
-];
-
 export const dynamic = 'force-dynamic';
 
+const EmptyStatePanel = ({
+  title,
+  message,
+  actionText,
+  onAction,
+}: {
+  title: string;
+  message: string;
+  actionText?: string;
+  onAction?: () => void;
+}) => {
+  return (
+    <div className="border border-dashed border-ink/30 bg-paper/50 p-8 text-center space-y-4 stamp-shadow-sm flex flex-col items-center justify-center min-h-[220px] w-full col-span-full">
+      <div className="w-12 h-12 rounded-full border border-ink/20 flex items-center justify-center bg-paper text-stamp select-none text-xl font-display font-black tracking-tighter shadow-sm">
+        CP
+      </div>
+      <div className="space-y-1 max-w-sm">
+        <h5 className="font-display font-bold text-ink uppercase tracking-wide text-sm">{title}</h5>
+        <p className="font-sans text-xs text-chalk leading-normal">{message}</p>
+      </div>
+      {actionText && onAction && (
+        <button
+          onClick={onAction}
+          className="border border-ink px-4 py-2 font-sans text-[10px] font-bold uppercase tracking-wider bg-paper text-ink hover:bg-ink/[0.04] stamp-shadow active:translate-y-0.5"
+        >
+          {actionText}
+        </button>
+      )}
+    </div>
+  );
+};
+
 export default function CivicProofApp() {
+  // Authentication & Identity
+  const { citizen, idToken, loading: authLoading } = useCitizenAuth();
+
   // Navigation & View states
   const [activeTab, setActiveTab] = useState<'home' | 'map' | 'report' | 'cases' | 'you'>('home');
   const [cases, setCases] = useState<CivicCase[]>([]);
@@ -146,7 +142,11 @@ export default function CivicProofApp() {
 
     async function init() {
       try {
-        const res = await fetch("/api/cases");
+        const headers: Record<string, string> = {};
+        if (idToken) {
+          headers["Authorization"] = `Bearer ${idToken}`;
+        }
+        const res = await fetch("/api/cases", { headers });
         const data = await res.json();
 
         if (active && data.success && Array.isArray(data.cases)) {
@@ -178,14 +178,14 @@ export default function CivicProofApp() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [idToken]);
 
   // Capture / Report Flow states (Zustand-like light flow)
-  const [captureStep, setCaptureStep] = useState<number>(1); // 1: Camera/Preset Select, 2: Reveal, 3: Stamp, 4: Confirmed
-  const [selectedPresetIndex, setSelectedPresetIndex] = useState<number>(0);
+  const [captureStep, setCaptureStep] = useState<number>(1); // 1: Camera Select, 2: Reveal, 3: Stamp, 4: Confirmed
   const [customPhoto, setCustomPhoto] = useState<string | null>(null);
   const [manualCategory, setManualCategory] = useState<string>('auto-detect');
   const [voiceNotes, setVoiceNotes] = useState<string>("");
+  const [draftVoiceNotes, setDraftVoiceNotes] = useState<string>("");
   const [isRecording, setIsRecording] = useState(false);
   const [voiceMode, setVoiceMode] = useState<'hi-IN' | 'en-IN' | 'mixed-IN'>('mixed-IN');
   const [voiceStatus, setVoiceStatus] = useState<'default' | 'recording' | 'transcribing' | 'success' | 'empty' | 'error'>('default');
@@ -195,6 +195,7 @@ export default function CivicProofApp() {
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingStartTimeRef = useRef<number>(0);
   const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const recognitionRef = useRef<any>(null);
 
   const [userNotes, setUserNotes] = useState<string>("");
   const [isVulnerableArea, setIsVulnerableArea] = useState(false);
@@ -203,6 +204,174 @@ export default function CivicProofApp() {
   const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
   const [locationName, setLocationName] = useState<string>("Detecting location...");
   const [locationConfirmed, setLocationConfirmed] = useState<boolean>(false);
+  const [showTechDetails, setShowTechDetails] = useState<boolean>(false);
+
+  const [locationShortLabel, setLocationShortLabel] = useState<string>("");
+  const [formattedAddress, setFormattedAddress] = useState<string>("");
+  const [locality, setLocality] = useState<string>("");
+  const [city, setCity] = useState<string>("");
+  const [stateName, setStateName] = useState<string>("");
+  const [countryName, setCountryName] = useState<string>("");
+  const [locationSource, setLocationSource] = useState<"gps" | "manual" | "gps_plus_manual" | "unknown">("unknown");
+  const [geolocationCapturedAt, setGeolocationCapturedAt] = useState<string>("");
+
+  const LOCATION_STORAGE_KEY = "civicproof_location_state";
+
+  useEffect(() => {
+    setTimeout(() => {
+      try {
+        const stored = localStorage.getItem(LOCATION_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed.detectedLocation) setDetectedLocation(parsed.detectedLocation);
+          if (parsed.locationAccuracy) setLocationAccuracy(parsed.locationAccuracy);
+          if (parsed.locationName) setLocationName(parsed.locationName);
+          if (parsed.locationConfirmed !== undefined) setLocationConfirmed(parsed.locationConfirmed);
+          if (parsed.locationShortLabel) setLocationShortLabel(parsed.locationShortLabel);
+          if (parsed.formattedAddress) setFormattedAddress(parsed.formattedAddress);
+          if (parsed.locality) setLocality(parsed.locality);
+          if (parsed.city) setCity(parsed.city);
+          if (parsed.stateName) setStateName(parsed.stateName);
+          if (parsed.countryName) setCountryName(parsed.countryName);
+          if (parsed.locationSource) setLocationSource(parsed.locationSource);
+          if (parsed.geolocationCapturedAt) setGeolocationCapturedAt(parsed.geolocationCapturedAt);
+        }
+      } catch (e) {
+        console.warn("Failed to load location from storage", e);
+      }
+    }, 0);
+  }, []);
+
+  const saveLocationState = (stateUpdates: any) => {
+    try {
+      const current = localStorage.getItem(LOCATION_STORAGE_KEY);
+      const parsed = current ? JSON.parse(current) : {};
+      const updated = { ...parsed, ...stateUpdates };
+      localStorage.setItem(LOCATION_STORAGE_KEY, JSON.stringify(updated));
+    } catch (e) {
+      console.warn("Failed to save location to storage", e);
+    }
+  };
+
+  const handleUpdateLocation = () => {
+    triggerToast("Updating live location...", "tally");
+    detectLocation(true);
+  };
+
+  const [placeSuggestions, setPlaceSuggestions] = useState<any[]>([]);
+  const [isSearchingPlaces, setIsSearchingPlaces] = useState<boolean>(false);
+
+  const handleLocationNameChange = (val: string) => {
+    setLocationName(val);
+    
+    if (val.trim().length < 3) {
+      setPlaceSuggestions([]);
+      return;
+    }
+
+    setIsSearchingPlaces(true);
+    fetch("/api/location/place-suggest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: val,
+        nearLatitude: detectedLocation?.latitude || undefined,
+        nearLongitude: detectedLocation?.longitude || undefined
+      })
+    })
+      .then(res => res.json())
+      .then(resData => {
+        if (resData.ok && resData.data?.suggestions) {
+          setPlaceSuggestions(resData.data.suggestions);
+        } else {
+          setPlaceSuggestions([]);
+        }
+      })
+      .catch(err => {
+        console.error("Place suggestion fetch error:", err);
+        setPlaceSuggestions([]);
+      })
+      .finally(() => {
+        setIsSearchingPlaces(false);
+      });
+  };
+
+  const handleSelectPlaceSuggestion = (sug: any) => {
+    setLocationName(sug.label);
+    setPlaceSuggestions([]);
+    
+    fetch("/api/location/reverse-geocode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        placeId: sug.placeId
+      })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.ok && data.data) {
+          const details = data.data;
+          setDetectedLocation({
+            latitude: details.rawCoordinates?.latitude ?? null,
+            longitude: details.rawCoordinates?.longitude ?? null,
+            address: details.formattedAddress || sug.label
+          });
+          setLocationName(details.shortLabel || sug.label);
+          setLocationShortLabel(details.shortLabel || "");
+          setFormattedAddress(details.formattedAddress || "");
+          setLocality(details.locality || "");
+          setCity(details.city || "");
+          setStateName(details.state || "");
+          setCountryName(details.country || "");
+          setLocationConfirmed(true);
+          setLocationSource(detectedLocation ? "gps_plus_manual" : "manual");
+          setGeolocationCapturedAt(new Date().toISOString());
+          triggerSound('tick');
+        } else {
+          setLocationShortLabel(sug.mainText || sug.label);
+          setLocationConfirmed(true);
+          setLocationSource(detectedLocation ? "gps_plus_manual" : "manual");
+        }
+      })
+      .catch(err => {
+        console.error("Geocoding selected place failed:", err);
+        setLocationShortLabel(sug.mainText || sug.label);
+        setLocationConfirmed(true);
+        setLocationSource(detectedLocation ? "gps_plus_manual" : "manual");
+      });
+  };
+
+  const getLocationPillText = () => {
+    if (typeof window !== "undefined" && window.location.pathname.includes("/demo")) {
+      return "Indiranagar, BLR";
+    }
+    
+    if (locationShortLabel) {
+      return locationShortLabel;
+    }
+    
+    if (detectedLocation) {
+      return "LOCATION DETECTED";
+    }
+    
+    return "LOCATION NOT SET";
+  };
+
+  const getProfileLocationText = () => {
+    if (locationShortLabel && locationShortLabel !== "Location detected nearby") {
+      return locationShortLabel;
+    }
+    if (locationConfirmed) {
+      return locationShortLabel || locality || city || locationName || "Location not set";
+    }
+    
+    const myCases = cases.filter(c => c.corroborations.some(corr => corr.contributorName === "You (Original Reporter)"));
+    const latestCaseWithLocation = myCases.find(c => c.locationConfirmedByUser && (c.locationShortLabel || c.city || c.gps.address));
+    if (latestCaseWithLocation) {
+      return latestCaseWithLocation.locationShortLabel || latestCaseWithLocation.city || latestCaseWithLocation.locationName;
+    }
+    return "Location not set";
+  };
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<any | null>(null);
@@ -313,6 +482,35 @@ export default function CivicProofApp() {
         }
       }, 20000);
 
+      // Web Speech API for instant drafts
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        setDraftVoiceNotes("");
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = voiceMode === 'hi-IN' ? 'hi-IN' : 'en-IN';
+        
+        let finalStr = '';
+        recognition.onresult = (event: any) => {
+          let interimTranscript = '';
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              finalStr += event.results[i][0].transcript;
+            } else {
+              interimTranscript += event.results[i][0].transcript;
+            }
+          }
+          setDraftVoiceNotes(finalStr + interimTranscript);
+        };
+        try {
+          recognition.start();
+          recognitionRef.current = recognition;
+        } catch (e) {
+          console.warn("Speech recognition failed to start", e);
+        }
+      }
+
     } catch (err) {
       console.error("Microphone access failed:", err);
       setVoiceStatus('error');
@@ -329,6 +527,10 @@ export default function CivicProofApp() {
     if (recordingTimerRef.current) {
       clearTimeout(recordingTimerRef.current);
     }
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
     setIsRecording(false);
   };
 
@@ -341,6 +543,9 @@ export default function CivicProofApp() {
       const base64Url = reader.result as string;
 
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
         const response = await fetch("/api/voice/transcribe", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -348,19 +553,28 @@ export default function CivicProofApp() {
             audioDataUrl: base64Url,
             mimeType: audioBlob.type,
             voiceMode: voiceMode
-          })
+          }),
+          signal: controller.signal
         });
 
-        const result = await response.json();
+        clearTimeout(timeoutId);
+
+        let result;
+        const textRes = await response.text();
+        try {
+          result = JSON.parse(textRes);
+        } catch (e) {
+          throw new Error(textRes || "Failed to parse transcription response");
+        }
 
         if (result.ok && result.data) {
           const { transcript, emptySpeechDetected } = result.data;
 
           if (emptySpeechDetected) {
             setVoiceStatus('empty');
-            setVoiceNotes("");
+            setVoiceNotes(draftVoiceNotes);
             setVoiceCapturedMode(null);
-            triggerToast("No clear speech detected. Try again or type manually.", "breach");
+            triggerToast("No clear speech detected. Type manually or retry.", "breach");
           } else {
             setVoiceStatus('success');
             setVoiceNotes(transcript);
@@ -369,16 +583,24 @@ export default function CivicProofApp() {
           }
         } else {
           setVoiceStatus('error');
-          setVoiceNotes("");
-          setVoiceCapturedMode(null);
-          triggerToast(result.error?.message || "Voice transcription is unavailable right now. Type your note manually and continue.", "breach");
+          setVoiceNotes(draftVoiceNotes);
+          setVoiceCapturedMode(draftVoiceNotes ? voiceMode : null);
+          if (draftVoiceNotes) {
+            triggerToast("Review the transcript before filing.", "tally");
+          } else {
+            triggerToast("Voice transcription is unavailable right now. Type your note manually and continue.", "breach");
+          }
         }
       } catch (err) {
         console.error("Transcription API failed:", err);
         setVoiceStatus('error');
-        setVoiceNotes("");
-        setVoiceCapturedMode(null);
-        triggerToast("Voice transcription is unavailable right now. Type your note manually and continue.", "breach");
+        setVoiceNotes(draftVoiceNotes);
+        setVoiceCapturedMode(draftVoiceNotes ? voiceMode : null);
+        if (draftVoiceNotes) {
+          triggerToast("Review the transcript before filing.", "tally");
+        } else {
+          triggerToast("Voice transcription is unavailable right now. Type your note manually and continue.", "breach");
+        }
       }
     };
   };
@@ -400,29 +622,130 @@ export default function CivicProofApp() {
   }, []);
 
   useEffect(() => {
-    let active = true;
-    if (captureStep === 1 && !detectedLocation) {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            if (!active) return;
-            setDetectedLocation({
+    let watchId: number;
+    if (navigator.geolocation) {
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          setDetectedLocation(prev => {
+            return {
               latitude: pos.coords.latitude,
               longitude: pos.coords.longitude,
-              address: ''
-            });
-            setLocationAccuracy(pos.coords.accuracy);
-            setLocationName(`Lat: ${pos.coords.latitude.toFixed(4)}, Lng: ${pos.coords.longitude.toFixed(4)}`);
-          },
-          (err) => {
-            if (active) setLocationName("Location not detected — add manually");
-          },
-          { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
-        );
+              address: prev?.address || ''
+            };
+          });
+          setLocationAccuracy(pos.coords.accuracy);
+        },
+        (err) => console.warn("Background location watch failed", err),
+        { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 }
+      );
+    }
+    return () => {
+      if (watchId && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchId);
       }
+    };
+  }, []);
+
+  const detectLocation = (isBackgroundUpdate = false) => {
+    if (navigator.geolocation) {
+      if (!isBackgroundUpdate) {
+        setLocationName("Detecting address...");
+        setLocationAccuracy(null);
+        setDetectedLocation(null);
+        setLocationSource("unknown");
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setDetectedLocation({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            address: ''
+          });
+          setLocationAccuracy(pos.coords.accuracy);
+          if (!isBackgroundUpdate) setLocationName("Detecting address...");
+          
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+          fetch("/api/location/reverse-geocode", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracyMeters: pos.coords.accuracy
+            }),
+            signal: controller.signal
+          })
+            .then(res => {
+              clearTimeout(timeoutId);
+              return res.json();
+            })
+            .then(data => {
+              if (data.ok && data.data) {
+                const details = data.data;
+                setLocationName(details.shortLabel || "Location detected nearby — add a landmark");
+                setLocationShortLabel(details.shortLabel || "");
+                setFormattedAddress(details.formattedAddress || "");
+                setLocality(details.locality || "");
+                setCity(details.city || "");
+                setStateName(details.state || "");
+                setCountryName(details.country || "");
+                setLocationSource("gps");
+                const capturedAt = new Date().toISOString();
+                setGeolocationCapturedAt(capturedAt);
+
+                saveLocationState({
+                  detectedLocation: {
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude,
+                    address: details.shortLabel || "Location detected nearby — add a landmark"
+                  },
+                  locationAccuracy: pos.coords.accuracy,
+                  locationName: details.shortLabel || "Location detected nearby — add a landmark",
+                  locationShortLabel: details.shortLabel || "",
+                  formattedAddress: details.formattedAddress || "",
+                  locality: details.locality || "",
+                  city: details.city || "",
+                  stateName: details.state || "",
+                  countryName: details.country || "",
+                  locationSource: "gps",
+                  geolocationCapturedAt: capturedAt
+                });
+              } else {
+                setLocationName("Location detected nearby — add a landmark");
+                setLocationShortLabel("Location detected nearby");
+                setLocationSource("gps");
+                setGeolocationCapturedAt(new Date().toISOString());
+              }
+            })
+            .catch(err => {
+              console.error("Reverse geocoding failed client-side:", err);
+              setLocationName("Location detected nearby — add a landmark");
+              setLocationShortLabel("Location detected nearby");
+              setLocationSource("gps");
+              setGeolocationCapturedAt(new Date().toISOString());
+            });
+        },
+        (err) => {
+          setLocationName("Location not detected — add manually");
+          setLocationSource("unknown");
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+      );
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    if (captureStep === 1 && !detectedLocation) {
+      setTimeout(() => {
+        if (active) detectLocation();
+      }, 0);
     }
     return () => { active = false; };
-  }, [captureStep, detectedLocation]);
+  }, [captureStep]);
 
   const getConfidenceLabel = (accuracy: number | null) => {
     if (accuracy === null) return "Location not detected";
@@ -446,26 +769,33 @@ export default function CivicProofApp() {
 
   // 2. Step 2 capture: Analyze Evidence via server proxy (Moment 5.2 - Polaroid Reveal)
   const handleAnalyzeEvidence = async () => {
+    if (!customPhoto) {
+      triggerToast("Please upload photo evidence first.", "breach");
+      return;
+    }
     setIsAnalyzing(true);
     setCaptureStep(2);
     setTypingFields([]);
     
-    const activePreset = PHOTO_PRESETS[selectedPresetIndex];
-    const targetPhoto = customPhoto || activePreset.url;
-    const targetNotes = userNotes || activePreset.notes;
-    const targetVoice = voiceNotes || ""; // Remove automatic preset.voice fallback to prevent fake simulation
+    const targetPhoto = customPhoto;
+    const targetNotes = userNotes;
+    const targetVoice = voiceNotes || "";
+
+    const isTempLocationName = locationName === "Detecting location..." || locationName === "Detecting address..." || locationName === "Location not detected — add manually" || locationName === "Location detected nearby — add a landmark";
+    
+    const finalLocationName = isTempLocationName && locationConfirmed === false ? "Unspecified location" : (locationName || "");
 
     const gpsData: GPSCoordinates = detectedLocation ? {
       latitude: detectedLocation.latitude,
       longitude: detectedLocation.longitude,
-      address: locationName || "",
+      address: finalLocationName,
       accuracyMeters: locationAccuracy || undefined,
       confirmedByUser: locationConfirmed
     } : {
-      latitude: activePreset.latitude,
-      longitude: activePreset.longitude,
-      address: locationName || activePreset.address,
-      confirmedByUser: locationConfirmed
+      latitude: 12.9716,
+      longitude: 77.6412,
+      address: finalLocationName,
+      confirmedByUser: false
     };
 
     // Trigger Polaroid develop reveal timer (1.4s)
@@ -474,9 +804,13 @@ export default function CivicProofApp() {
     }, 400);
 
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (idToken) {
+        headers["Authorization"] = `Bearer ${idToken}`;
+      }
       const res = await fetch("/api/gemini/analyze", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           photoUrl: targetPhoto,
           voiceTranscript: targetVoice,
@@ -484,11 +818,28 @@ export default function CivicProofApp() {
           gps: gpsData,
           isVulnerable: isVulnerableArea,
           voiceMode: voiceCapturedMode || undefined,
-          manualCategory: manualCategory === 'auto-detect' ? undefined : manualCategory
+          manualCategory: manualCategory === 'auto-detect' ? undefined : manualCategory,
+          locationShortLabel,
+          formattedAddress,
+          locality,
+          city,
+          state: stateName,
+          country: countryName,
+          geolocationCapturedAt,
+          locationAccuracyMeters: locationAccuracy,
+          locationConfirmedByUser: locationConfirmed,
+          locationSource
         })
       });
 
-      const data = await res.json();
+      let data;
+      const textRes = await res.text();
+      try {
+        data = JSON.parse(textRes);
+      } catch (e) {
+        throw new Error(textRes || "Failed to parse analysis response");
+      }
+
       if (data.success && data.case) {
         setAnalysisResult(data.case);
         
@@ -569,67 +920,153 @@ export default function CivicProofApp() {
     setAnalysisResult(null);
     setTypingFields([]);
     setMatchingNearby(null);
+    setDetectedLocation(null);
+    setLocationAccuracy(null);
+    setLocationName("Detecting location...");
+    setLocationConfirmed(false);
+    setLocationShortLabel("");
+    setFormattedAddress("");
+    setLocality("");
+    setCity("");
+    setStateName("");
+    setCountryName("");
+    setLocationSource("unknown");
+    setGeolocationCapturedAt("");
+    setPlaceSuggestions([]);
+    setIsSearchingPlaces(false);
   };
 
-  // 5. Corroborate an existing case (Moment 5.4 - The Signature ledger)
-  const handleCorroborateAction = (caseId: string, type: CorroborationType, commentText?: string) => {
-    const updated = cases.map(c => {
-      if (c.id === caseId) {
-        // Prevent duplicate citizen signature from same person
-        const alreadyCorroborated = c.corroborations.some(corr => corr.contributorName === "You");
-        if (alreadyCorroborated && type !== 'angle') {
-          return c;
-        }
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+  const [isImpactModalOpen, setIsImpactModalOpen] = useState(false);
+  const [isActiveModalOpen, setIsActiveModalOpen] = useState(false);
 
-        const newCorr = {
-          id: `CORR-${Date.now()}`,
-          filedAt: new Date().toISOString(),
-          text: commentText || "Neighborhood validation signal added.",
-          type: type,
-          contributorName: "You"
-        };
+  const [strengthenPhoto, setStrengthenPhoto] = useState<string | null>(null);
+  const [strengthenCaption, setStrengthenCaption] = useState("");
 
-        const newCorroborations = [...c.corroborations, newCorr];
-        
-        // Recalculate Harm Score based on new community weight
-        const { score, breakdown } = calculateHarmScore(
-          c.category,
-          c.filedAt,
-          newCorroborations.length,
-          c.harmScoreBreakdown.vulnerabilityFactor === 25
-        );
+  const [strengthenImpactNote, setStrengthenImpactNote] = useState("");
+  const [strengthenImpactChips, setStrengthenImpactChips] = useState<string[]>([]);
+  
+  const [strengthenActiveNote, setStrengthenActiveNote] = useState("");
+  const [strengthenActiveChecked, setStrengthenActiveChecked] = useState(false);
+  const [isSubmittingStrengthen, setIsSubmittingStrengthen] = useState(false);
 
-        const newTimelineEvent = {
-          id: `EV-${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          title: `Corroborated (+ ${type.toUpperCase()})`,
-          description: `You added proof of type [${type}]. Neighborhood verification signal strengthened.`,
-          type: "corroborate" as const,
-          actorName: "You"
-        };
+  const IMPACT_CHIP_OPTIONS = [
+    "Children nearby",
+    "Elderly residents affected",
+    "Wheelchair access blocked",
+    "School route",
+    "Market access blocked",
+    "Flooding risk"
+  ];
 
-        const updatedCase = {
-          ...c,
-          corroborations: newCorroborations,
-          harmScore: score,
-          harmScoreBreakdown: breakdown,
-          timeline: [...c.timeline, newTimelineEvent]
-        };
+  const handleToggleImpactChip = (chip: string) => {
+    if (strengthenImpactChips.includes(chip)) {
+      setStrengthenImpactChips(prev => prev.filter(c => c !== chip));
+    } else {
+      setStrengthenImpactChips(prev => [...prev, chip]);
+    }
+  };
 
-        // If selected, sync current view
-        if (selectedCase && selectedCase.id === caseId) {
-          setSelectedCase(updatedCase);
-        }
-
-        return updatedCase;
+  const handleSubmitPhotoProof = async (caseId: string) => {
+    if (!strengthenPhoto) return;
+    setIsSubmittingStrengthen(true);
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      
+      const res = await fetch(`/api/cases/${caseId}/evidence`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          type: "photo",
+          imageUrl: strengthenPhoto,
+          caption: strengthenCaption
+        })
+      });
+      const data = await res.json();
+      if (data.ok && data.data.case) {
+        const updated = data.data.case;
+        setCases(prev => prev.map(c => c.id === caseId ? updated : c));
+        if (selectedCase && selectedCase.id === caseId) setSelectedCase(updated);
+        triggerToast("Photo proof added to this civic case.", "tally");
+        setIsPhotoModalOpen(false);
+        setStrengthenPhoto(null);
+        setStrengthenCaption("");
+      } else {
+        triggerToast("Could not add photo proof. Try again.", "breach");
       }
-      return c;
-    });
+    } catch (e) {
+      console.error(e);
+      triggerToast("Could not add photo proof. Try again.", "breach");
+    } finally {
+      setIsSubmittingStrengthen(false);
+    }
+  };
 
-    setCases(updated);
-    saveCases(updated);
-    triggerSound('ding'); // Quick double brass chime/cash register style ding
-    triggerToast(`Your neighborhood signal snapped into public ledger! Harm score boosted.`, "tally");
+  const handleSubmitImpactNote = async (caseId: string) => {
+    if (strengthenImpactNote.length < 10 && strengthenImpactChips.length === 0) return;
+    setIsSubmittingStrengthen(true);
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      
+      const res = await fetch(`/api/cases/${caseId}/impact`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          note: strengthenImpactNote,
+          chips: strengthenImpactChips
+        })
+      });
+      const data = await res.json();
+      if (data.ok && data.data.case) {
+        const updated = data.data.case;
+        setCases(prev => prev.map(c => c.id === caseId ? updated : c));
+        if (selectedCase && selectedCase.id === caseId) setSelectedCase(updated);
+        triggerToast("Impact note added.", "tally");
+        setIsImpactModalOpen(false);
+        setStrengthenImpactNote("");
+        setStrengthenImpactChips([]);
+      } else {
+        triggerToast("Could not add impact note. Try again.", "breach");
+      }
+    } catch (e) {
+      console.error(e);
+      triggerToast("Could not add impact note. Try again.", "breach");
+    } finally {
+      setIsSubmittingStrengthen(false);
+    }
+  };
+
+  const handleSubmitActiveConfirmation = async (caseId: string) => {
+    if (!strengthenActiveChecked) return;
+    setIsSubmittingStrengthen(true);
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      
+      const res = await fetch(`/api/cases/${caseId}/confirm-active`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          note: strengthenActiveNote
+        })
+      });
+      const data = await res.json();
+      if (data.ok && data.data.case) {
+        const updated = data.data.case;
+        setCases(prev => prev.map(c => c.id === caseId ? updated : c));
+        if (selectedCase && selectedCase.id === caseId) setSelectedCase(updated);
+        triggerToast("Case confirmed active today.", "tally");
+        setIsActiveModalOpen(false);
+        setStrengthenActiveNote("");
+        setStrengthenActiveChecked(false);
+      } else {
+        triggerToast("Could not confirm active. Try again.", "breach");
+      }
+    } catch (e) {
+      console.error(e);
+      triggerToast("Could not confirm active. Try again.", "breach");
+    } finally {
+      setIsSubmittingStrengthen(false);
+    }
   };
 
   // 6. Generate official complaint packet (Moment 7.4 bottom section)
@@ -738,48 +1175,6 @@ export default function CivicProofApp() {
     }
   };
 
-  // 8. Authority view simulation (Moment 5.5 - The Recognition)
-  const handleSimulateAuthorityView = (caseId: string) => {
-    const updated = cases.map(c => {
-      if (c.id === caseId) {
-        const alreadyViewed = c.timeline.some(e => e.title === "Authority File Inspection");
-        if (alreadyViewed) return c;
-
-        const updatedCase = {
-          ...c,
-          status: "UNDER_REVIEW" as CaseStatus,
-          authorityLastSeenAt: new Date().toISOString(),
-          timeline: [
-            ...c.timeline,
-            {
-              id: `EV-VIEW-${Date.now()}`,
-              timestamp: new Date().toISOString(),
-              title: "Authority File Inspection",
-              description: `A senior Executive Engineer from ${c.department.split(' ')[0]} logged into the public docket and viewed geotagged evidence.`,
-              type: "review" as const,
-              actorName: "M. Prasad (Division Engineer)"
-            }
-          ]
-        };
-
-        if (selectedCase && selectedCase.id === caseId) {
-          setSelectedCase(updatedCase);
-        }
-
-        // Trigger push notification simulated alert for citizens (Moment 5.5)
-        setTimeout(() => {
-          triggerToast(`Engineer M. Prasad opened the case file you supported on ${c.gps.address?.split(',')[0]}!`, "tally");
-        }, 1500);
-
-        return updatedCase;
-      }
-      return c;
-    });
-
-    setCases(updated);
-    saveCases(updated);
-  };
-
   // 9. Submit resolution check photographic audit (Moment 5.6 - Case Sealed)
   const handleVerifyResolution = async (caseItem: CivicCase) => {
     if (!resolutionPhoto) {
@@ -854,6 +1249,17 @@ export default function CivicProofApp() {
     c.corroborations.some(corr => corr.contributorName === "You" || corr.contributorName === "You (Original Reporter)")
   ).length;
 
+  const recentTimelineEvents = cases
+    .flatMap(c => 
+      c.timeline.map(ev => ({
+        ...ev,
+        caseId: c.id,
+        caseTitle: c.title,
+      }))
+    )
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 4);
+
   const mainDisplayTab = (activeTab === 'report' && isDesktopLayout) ? 'home' : activeTab;
 
   return (
@@ -867,9 +1273,18 @@ export default function CivicProofApp() {
           {/* Wordmark and neighborhood */}
           <div className="space-y-3">
             <BrandWordmark />
-            <span className="font-sans text-[10px] font-semibold px-2 py-0.5 bg-stamp text-paper rounded-sm uppercase tracking-wider inline-block">
-              Indiranagar, BLR
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-sans text-[10px] font-semibold px-2 py-0.5 bg-stamp text-paper rounded-sm uppercase tracking-wider inline-block">
+                {getLocationPillText()}
+              </span>
+              <button 
+                onClick={handleUpdateLocation}
+                className="text-chalk hover:text-ink transition-colors"
+                title="Update Location"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           {/* Vertical navigation menu */}
@@ -1117,53 +1532,38 @@ export default function CivicProofApp() {
                 {/* Active Corroboration Actions Panel (Satisfaction Moment 5.4 - Magnetic Signature) */}
                 {selectedCase.status !== 'RESOLVED' && (
                   <div className="space-y-2.5">
-                    <span className="font-sans text-xs text-chalk font-semibold uppercase tracking-wider block">Strengthen Case File</span>
+                    <div>
+                      <span className="font-sans text-xs text-ink font-bold uppercase tracking-wider block">Strengthen this civic case</span>
+                      <span className="font-sans text-[10px] text-chalk block mt-0.5">Add proof, impact, or confirmation so this case becomes harder to ignore.</span>
+                    </div>
                     
-                    {/* Checks if already corroborated */}
-                    {selectedCase.corroborations.some(co => co.contributorName === "You") ? (
-                      <div className="bg-tally/10 border border-tally text-tally p-3 text-xs font-medium font-sans text-center rounded-sm">
-                        ✔ You have added your signature to this public record case.
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-3 gap-2">
-                        <button 
-                          onClick={() => handleCorroborateAction(selectedCase.id, 'angle', 'Verified same visual coordinates, still active.')}
-                          className="bg-paper border border-ink text-ink font-sans text-xs py-2 px-1 font-semibold hover:bg-ink/[0.04] stamp-shadow active:translate-y-0.5 shrink-0 flex flex-col items-center gap-1 text-center"
-                        >
-                          <span className="text-stamp font-bold text-sm">+ angle</span>
-                          <span className="text-[10px] text-chalk font-normal">Add Perspective</span>
-                        </button>
-                        
-                        <button 
-                          onClick={() => handleCorroborateAction(selectedCase.id, 'impact', 'Heavy pedestrian safety concern in my daily route.')}
-                          className="bg-paper border border-ink text-ink font-sans text-xs py-2 px-1 font-semibold hover:bg-ink/[0.04] stamp-shadow active:translate-y-0.5 shrink-0 flex flex-col items-center gap-1 text-center"
-                        >
-                          <span className="text-tally font-bold text-sm">+ impact</span>
-                          <span className="text-[10px] text-chalk font-normal">Flag Urgency</span>
-                        </button>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <button 
+                        onClick={() => setIsPhotoModalOpen(true)}
+                        className="bg-paper border border-ink text-ink font-sans text-xs py-2 px-1 font-semibold hover:bg-ink/[0.04] stamp-shadow active:translate-y-0.5 shrink-0 flex flex-col items-center gap-1 text-center"
+                      >
+                        <span className="text-stamp font-bold text-sm">Add photo proof</span>
+                        <span className="text-[10px] text-chalk font-normal">Upload another angle</span>
+                      </button>
+                      
+                      <button 
+                        onClick={() => setIsImpactModalOpen(true)}
+                        className="bg-paper border border-ink text-ink font-sans text-xs py-2 px-1 font-semibold hover:bg-ink/[0.04] stamp-shadow active:translate-y-0.5 shrink-0 flex flex-col items-center gap-1 text-center"
+                      >
+                        <span className="text-tally font-bold text-sm">Add impact note</span>
+                        <span className="text-[10px] text-chalk font-normal">Explain who is affected</span>
+                      </button>
 
-                        <button 
-                          onClick={() => handleCorroborateAction(selectedCase.id, 'timestamp', 'Still unresolved. Clock check today.')}
-                          className="bg-paper border border-ink text-ink font-sans text-xs py-2 px-1 font-semibold hover:bg-ink/[0.04] stamp-shadow active:translate-y-0.5 shrink-0 flex flex-col items-center gap-1 text-center"
-                        >
-                          <span className="text-ink font-bold text-sm">+ stamp</span>
-                          <span className="text-[10px] text-chalk font-normal">Active Today</span>
-                        </button>
-                      </div>
-                    )}
+                      <button 
+                        onClick={() => setIsActiveModalOpen(true)}
+                        className="bg-paper border border-ink text-ink font-sans text-xs py-2 px-1 font-semibold hover:bg-ink/[0.04] stamp-shadow active:translate-y-0.5 shrink-0 flex flex-col items-center gap-1 text-center"
+                      >
+                        <span className="text-ink font-bold text-sm">Confirm still active</span>
+                        <span className="text-[10px] text-chalk font-normal">Verify this issue today</span>
+                      </button>
+                    </div>
                   </div>
                 )}
-
-                {/* Simulate Authority View view trigger (Moment 5.5) */}
-                {selectedCase.status === 'FILED' || selectedCase.status === 'ROUTED' ? (
-                  <button 
-                    onClick={() => handleSimulateAuthorityView(selectedCase.id)}
-                    className="w-full bg-paper text-ink border border-ink font-sans text-xs font-semibold py-2 rounded-sm hover:bg-ink/[0.04] active:translate-y-0.5 stamp-shadow flex items-center justify-center gap-2"
-                  >
-                    <Info className="w-3.5 h-3.5 text-stamp animate-bounce" />
-                    Simulate Authority Opening File
-                  </button>
-                ) : null}
               </div>
 
               {/* Middle Divider: Public Record Bridge Seal (Section 7.4 middle) */}
@@ -1657,7 +2057,16 @@ export default function CivicProofApp() {
             <div className="h-14 flex justify-between items-center border-b border-ink pb-2">
               <div className="flex items-end gap-3">
                 <BrandWordmark className="scale-90 origin-left" />
-                <span className="font-sans text-[10px] font-semibold px-2 py-0.5 bg-stamp text-paper rounded-sm uppercase mb-1">Indiranagar, BLR</span>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="font-sans text-[10px] font-semibold px-2 py-0.5 bg-stamp text-paper rounded-sm uppercase">{getLocationPillText()}</span>
+                  <button 
+                    onClick={handleUpdateLocation}
+                    className="text-chalk hover:text-ink transition-colors"
+                    title="Update Location"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
               <button 
                 onClick={() => setSoundEnabled(!soundEnabled)} 
@@ -1718,8 +2127,85 @@ export default function CivicProofApp() {
                       “Civic record storage is unavailable right now. Please try again.”
                     </div>
                   ) : cases.length === 0 ? (
-                    <div className="col-span-full text-center py-12 border border-dashed border-ink/20 font-sans text-xs text-chalk p-6 bg-paper w-full">
-                      “No civic cases on your block yet. Be the first to file proof.”
+                    <div className="col-span-full space-y-6 w-full">
+                      <EmptyStatePanel
+                        title="Your block is quiet — for now."
+                        message="No civic cases have been filed here yet. Start the first CivicProof record with a photo, voice note, or landmark."
+                        actionText="File the first case"
+                        onAction={() => {
+                          setActiveTab('report');
+                          setCaptureStep(1);
+                        }}
+                      />
+                      
+                      {/* Secondary informational modules (Part 8) */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+                        {/* How CivicProof Works */}
+                        <div className="border border-ink p-4 bg-paper/30 space-y-3 stamp-shadow-sm">
+                          <h4 className="font-display font-bold text-xs uppercase tracking-wider text-ink flex items-center gap-1.5">
+                            <Sparkles className="w-4 h-4 text-stamp" /> How CivicProof Works
+                          </h4>
+                          <ol className="space-y-2 text-xs font-sans text-chalk divide-y divide-ink/10">
+                            <li className="pt-1.5 first:pt-0"><span className="font-bold text-ink">1. Capture Proof:</span> Upload photo evidence or record a voice note.</li>
+                            <li className="pt-1.5"><span className="font-bold text-ink">2. Confirm Location:</span> Confirm GPS location of the hazard.</li>
+                            <li className="pt-1.5"><span className="font-bold text-ink">3. Structuring Case:</span> AI parses and formats the evidence.</li>
+                            <li className="pt-1.5"><span className="font-bold text-ink">4. Corroborate:</span> Duplicate reports merge to strengthen evidence.</li>
+                            <li className="pt-1.5"><span className="font-bold text-ink">5. SLA Inaction Clock:</span> Unresolved reports escalate if ignored.</li>
+                          </ol>
+                        </div>
+
+                        {/* First Case Checklist */}
+                        <div className="border border-ink p-4 bg-paper/30 space-y-3 stamp-shadow-sm">
+                          <h4 className="font-display font-bold text-xs uppercase tracking-wider text-ink flex items-center gap-1.5">
+                            <CheckCircle className="w-4 h-4 text-tally" /> First Case Checklist
+                          </h4>
+                          <ul className="space-y-2 text-xs font-sans text-chalk">
+                            <li className="flex items-start gap-2">
+                              <span className="border border-ink w-3.5 h-3.5 shrink-0 inline-flex items-center justify-center text-[9px] font-bold"></span>
+                              <span>Add real photo or voice testimony</span>
+                            </li>
+                            <li className="flex items-start gap-2">
+                              <span className="border border-ink w-3.5 h-3.5 shrink-0 inline-flex items-center justify-center text-[9px] font-bold"></span>
+                              <span>Provide landmarks & secondary notes</span>
+                            </li>
+                            <li className="flex items-start gap-2">
+                              <span className="border border-ink w-3.5 h-3.5 shrink-0 inline-flex items-center justify-center text-[9px] font-bold"></span>
+                              <span>Confirm active block coordinates</span>
+                            </li>
+                            <li className="flex items-start gap-2">
+                              <span className="border border-ink w-3.5 h-3.5 shrink-0 inline-flex items-center justify-center text-[9px] font-bold"></span>
+                              <span>AI compiles legal complaint draft</span>
+                            </li>
+                            <li className="flex items-start gap-2">
+                              <span className="border border-ink w-3.5 h-3.5 shrink-0 inline-flex items-center justify-center text-[9px] font-bold"></span>
+                              <span>Submit to target municipal board</span>
+                            </li>
+                          </ul>
+                        </div>
+
+                        {/* What will appear here - Skeleton outlines */}
+                        <div className="border border-dashed border-ink/25 p-4 space-y-3 md:col-span-2">
+                          <h4 className="font-display font-bold text-[10px] uppercase tracking-wider text-chalk">
+                            Preview: Live Active Case Feeds
+                          </h4>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="border border-dashed border-ink/20 p-3 bg-paper/10 text-[10px] font-mono text-chalk flex flex-col justify-between h-20">
+                              <span>CARD-XXXXX · INTAKE PREVIEW</span>
+                              <span>“Case cards will appear here after real reports are filed.”</span>
+                            </div>
+                            <div className="border border-dashed border-ink/20 p-3 bg-paper/10 text-[10px] font-mono text-chalk flex flex-col justify-between h-20">
+                              <span>BREACH-SLA · TIMELINE EVENT</span>
+                              <span>“SLA breach escalation alerts will auto-populate here.”</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Privacy Note */}
+                        <div className="border border-ink/40 p-3 bg-ink/5 md:col-span-2 text-[11px] font-mono text-chalk/90 flex gap-2 items-center">
+                          <Shield className="w-4 h-4 text-stamp shrink-0" />
+                          <span><strong className="text-ink">Privacy and Evidence Note:</strong> CivicProof stores civic case records, not private chats. Review your transcript and location before filing.</span>
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     cases.map(item => {
@@ -1795,11 +2281,19 @@ export default function CivicProofApp() {
                       <span className="font-display font-black text-7xl text-stamp leading-none">
                         {activeCasesCount}
                       </span>
-                      <span className="font-sans text-sm font-semibold text-ink/80">cases active in Indiranagar</span>
+                      <span className="font-sans text-sm font-semibold text-ink/80">
+                        {activeCasesCount === 1 ? "case active" : "cases active"} in {getLocationPillText() === "LOCATION NOT SET" ? "your area" : getLocationPillText()}
+                      </span>
                     </div>
-                    <p className="font-sans text-xs text-chalk pt-1">
-                      We are {resolvedCasesCount} cases resolved this cycle. Power in neighbor signals.
-                    </p>
+                    {activeCasesCount === 0 ? (
+                      <p className="font-sans text-xs text-chalk pt-1">
+                        CivicProof will calculate neighborhood load once real cases are filed.
+                      </p>
+                    ) : (
+                      <p className="font-sans text-xs text-chalk pt-1">
+                        We are {resolvedCasesCount} cases resolved this cycle. Power in neighbor signals.
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1812,26 +2306,31 @@ export default function CivicProofApp() {
                 <Clock className="w-4 h-4 text-stamp" /> What changed near you
               </h4>
               
-              <div className="border border-ink divide-y divide-ink bg-paper font-sans text-xs">
-                <div className="p-3 hover:bg-ink/[0.02] flex justify-between items-center gap-4">
-                  <p className="text-ink/90 flex-1">
-                    <span className="font-bold">District Engineer M. Prasad</span> opened the active cable file on 6th Cross<span className="md:hidden"> · <span className="text-chalk text-[10px]">2h ago</span></span>
-                  </p>
-                  <span className="hidden md:inline font-mono text-[10px] text-chalk shrink-0 uppercase">2H AGO</span>
+              {recentTimelineEvents.length === 0 ? (
+                <div className="p-6 border border-ink text-center text-chalk text-xs font-sans bg-paper">
+                  No civic activity recorded yet.
                 </div>
-                <div className="p-3 hover:bg-ink/[0.02] flex justify-between items-center gap-4">
-                  <p className="text-ink/90 flex-1">
-                    <span className="font-bold">Priya Nair & 1 other</span> corroborated the massive pothole on 12th Main<span className="md:hidden"> · <span className="text-chalk text-[10px]">this morning</span></span>
-                  </p>
-                  <span className="hidden md:inline font-mono text-[10px] text-chalk shrink-0 uppercase">TODAY</span>
+              ) : (
+                <div className="border border-ink divide-y divide-ink bg-paper font-sans text-xs">
+                  {recentTimelineEvents.map(ev => {
+                    const dateStr = new Date(ev.timestamp).toLocaleDateString('en-IN', {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    });
+                    return (
+                      <div key={ev.id} className="p-3 hover:bg-ink/[0.02] flex justify-between items-center gap-4">
+                        <p className="text-ink/90 flex-1">
+                          <span className="font-bold">{ev.title}</span> &mdash; {ev.description}
+                          <span className="text-chalk text-[10px] font-mono block mt-1 uppercase">Case {ev.caseId}</span>
+                        </p>
+                        <span className="font-mono text-[10px] text-chalk shrink-0 uppercase">{dateStr}</span>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="p-3 hover:bg-ink/[0.02] flex justify-between items-center gap-4">
-                  <p className="text-ink/90 flex-1">
-                    <span className="font-bold">BWSSB Sewer Crew</span> completely sealed blackwater main flood on CMH Rd<span className="md:hidden"> · <span className="text-chalk text-[10px]">yesterday</span></span>
-                  </p>
-                  <span className="hidden md:inline font-mono text-[10px] text-chalk shrink-0 uppercase">1 DAY AGO</span>
-                </div>
-              </div>
+              )}
             </div>
 
             {/* Row 4 (full width 12 cols, ≥ 1280px only): Neighborhood Board Preview */}
@@ -1876,12 +2375,21 @@ export default function CivicProofApp() {
                 {cases.slice(0, 4).map((c, i) => {
                   let x = 200;
                   let y = 150;
-                  if (c.id === "CP-2026-P80E1") { x = 170; y = 180; }
-                  else if (c.id === "CP-2026-B44E8") { x = 600; y = 75; }
-                  else if (c.id === "CP-2026-G15A3") { x = 360; y = 155; }
-                  else {
-                    x = 800 + (i * 120);
-                    y = 120 + (i * 30);
+                  if (c.gps.latitude !== null && c.gps.longitude !== null) {
+                    const centerLat = 12.9716;
+                    const centerLng = 77.5946;
+                    const scale = 3000;
+                    const dx = (c.gps.longitude - centerLng) * scale;
+                    const dy = (centerLat - c.gps.latitude) * scale;
+                    x = Math.max(20, Math.min(1000, 400 + dx));
+                    y = Math.max(20, Math.min(300, 160 + dy));
+                  } else {
+                    let hash = 0;
+                    for (let charIndex = 0; charIndex < c.title.length; charIndex++) {
+                      hash = c.title.charCodeAt(charIndex) + ((hash << 5) - hash);
+                    }
+                    x = 100 + Math.abs(hash % 800);
+                    y = 50 + Math.abs((hash >> 2) % 220);
                   }
 
                   const pinColor = c.status === 'RESOLVED' ? 'bg-tally' : c.status === 'BREACHED' ? 'bg-breach animate-pulse' : 'bg-stamp';
@@ -1932,137 +2440,23 @@ export default function CivicProofApp() {
                 ))}
               </div>
 
-              {/* Fully Custom Interactive Vector-style Neighborhood Map (Section 7.3) */}
+              {/* Interactive OpenStreetMap */}
               <div className="flex-1 w-full relative bg-paper border-b border-ink flex flex-col justify-between overflow-hidden">
-                
-                {/* Map Canvas Background Drawing */}
-                <svg className="absolute inset-0 w-full h-full select-none" xmlns="http://www.w3.org/2000/svg">
-                  {/* Subtle paper grid */}
-                  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="var(--color-ink)" strokeWidth="0.5" strokeOpacity="0.06"/>
-                  </pattern>
-                  <rect width="100%" height="100%" fill="url(#grid)" />
-
-                  {/* Indiranagar Parks */}
-                  <rect x="20" y="80" width="120" height="70" fill="var(--color-tally)" fillOpacity="0.12" stroke="var(--color-ink)" strokeWidth="1" strokeDasharray="2,2" strokeOpacity="0.2" />
-                  <text x="30" y="105" className="font-sans text-[10px] text-chalk/70 uppercase font-semibold">Club Park</text>
-
-                  <rect x="250" y="320" width="130" height="85" fill="var(--color-tally)" fillOpacity="0.12" stroke="var(--color-ink)" strokeWidth="1" strokeDasharray="2,2" strokeOpacity="0.2" />
-                  <text x="260" y="345" className="font-sans text-[10px] text-chalk/70 uppercase font-semibold">Defence Park</text>
-
-                  {/* Halasuru Lake margin water */}
-                  <circle cx="0" cy="500" r="140" fill="var(--color-stamp)" fillOpacity="0.08" stroke="var(--color-ink)" strokeWidth="1" strokeDasharray="4,4" strokeOpacity="0.15" />
-                  <text x="15" y="440" className="font-sans text-[10px] text-chalk/70 uppercase font-semibold rotate-45">Water Tank</text>
-
-                  {/* Simulated Street Roads (ink/12% for Roads, Section 7.3) */}
-                  {/* 100 Feet Road (Vertical) */}
-                  <line x1="200" y1="0" x2="200" y2="600" stroke="var(--color-ink)" strokeWidth="22" strokeOpacity="0.08" />
-                  <line x1="200" y1="0" x2="200" y2="600" stroke="var(--color-ink)" strokeWidth="1" strokeDasharray="4,4" strokeOpacity="0.15" />
-                  
-                  {/* CMH Road (Horizontal) */}
-                  <line x1="0" y1="240" x2="450" y2="240" stroke="var(--color-ink)" strokeWidth="26" strokeOpacity="0.08" />
-                  <line x1="0" y1="240" x2="450" y2="240" stroke="var(--color-ink)" strokeWidth="1" strokeDasharray="4,4" strokeOpacity="0.15" />
-
-                  {/* 12th Main Road (Vertical) */}
-                  <line x1="80" y1="0" x2="80" y2="600" stroke="var(--color-ink)" strokeWidth="16" strokeOpacity="0.06" />
-                  
-                  {/* 6th Cross Road (Horizontal) */}
-                  <line x1="0" y1="120" x2="450" y2="120" stroke="var(--color-ink)" strokeWidth="14" strokeOpacity="0.06" />
-
-                  {/* Double Road (Diagonal) */}
-                  <line x1="0" y1="100" x2="450" y2="400" stroke="var(--color-ink)" strokeWidth="14" strokeOpacity="0.04" />
-
-                  {/* Street Names (chalk Geist 11px, Section 7.3) */}
-                  <text x="210" y="16" className="font-sans text-[10px] text-chalk font-semibold uppercase tracking-wider fill-chalk" transform="rotate(90, 210, 16)">100 Feet Rd</text>
-                  <text x="320" y="234" className="font-sans text-[10px] text-chalk font-semibold uppercase tracking-wider fill-chalk">CMH Road</text>
-                  <text x="90" y="15" className="font-sans text-[10px] text-chalk font-semibold uppercase tracking-wider fill-chalk" transform="rotate(90, 90, 15)">12th Main Rd</text>
-                  <text x="310" y="112" className="font-sans text-[10px] text-chalk font-semibold uppercase tracking-wider fill-chalk">6th Cross Rd</text>
-
-                  {/* Metro Line simulation box */}
-                  <line x1="0" y1="225" x2="450" y2="225" stroke="var(--color-stamp)" strokeWidth="2" strokeDasharray="6,4" strokeOpacity="0.5" />
-                  <rect x="150" y="215" width="100" height="20" fill="var(--color-paper)" stroke="var(--color-ink)" strokeWidth="1" />
-                  <text x="162" y="229" className="font-display font-bold text-[9px] fill-ink tracking-wider">INDIRANAGAR STN</text>
-                </svg>
-
-                {/* Chunky Map Pins rendering (Section 7.3) */}
-                <div className="absolute inset-0 pointer-events-none">
-                  {storageUnavailable && (
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="bg-paper border-2 border-breach text-center p-4 font-sans text-xs text-ink uppercase tracking-wider stamp-shadow pointer-events-auto max-w-xs">
-                        “Civic record storage is unavailable right now. Please try again.”
-                      </div>
-                    </div>
-                  )}
-
-                  {!storageUnavailable && cases.filter(c => {
-                    if (mapFilter === 'active') return c.status !== 'RESOLVED';
-                    if (mapFilter === 'resolved') return c.status === 'RESOLVED';
-                    if (mapFilter === 'breached') return c.status === 'BREACHED';
-                    if (mapFilter === 'mine') return c.corroborations.some(co => co.contributorName === "You" || co.contributorName === "You (Original Reporter)");
-                    return true;
-                  }).length === 0 && (
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="bg-paper border-2 border-ink p-4 font-sans text-xs text-ink uppercase tracking-wider stamp-shadow pointer-events-auto">
-                        “No mapped civic cases yet.”
-                      </div>
-                    </div>
-                  )}
-
-                  {cases
-                    .filter(c => c.gps.latitude !== null && c.gps.longitude !== null)
-                    .filter(c => {
-                      if (mapFilter === 'active') return c.status !== 'RESOLVED';
-                      if (mapFilter === 'resolved') return c.status === 'RESOLVED';
-                      if (mapFilter === 'breached') return c.status === 'BREACHED';
-                      if (mapFilter === 'mine') return c.corroborations.some(co => co.contributorName === "You" || co.contributorName === "You (Original Reporter)");
-                      return true;
-                    })
-                    .map((c, i) => {
-                      // Map GPS to container coordinate positions
-                      let x = 200;
-                      let y = 300;
-
-                      if (c.id === "CP-2026-P80E1") { x = 70; y = 290; } // 12th Main pothole
-                      else if (c.id === "CP-2026-B44E8") { x = 330; y = 115; } // 6th Cross cable
-                      else if (c.id === "CP-2026-G15A3") { x = 160; y = 245; } // Metro blackwater
-                      else {
-                        // Dynamically position slightly off center for custom uploads
-                        x = 240 + (i * 25);
-                        y = 380 - (i * 30);
-                      }
-
-                      // Map size based on corroboration count
-                      const pinSize = Math.min(56, Math.max(34, 34 + c.corroborations.length * 4));
-                      const pinColor = c.status === 'RESOLVED' ? 'bg-tally' : c.status === 'BREACHED' ? 'bg-breach animate-pulse' : 'bg-stamp';
-
-                      return (
-                        <button
-                          key={c.id}
-                          onClick={() => {
-                            setSelectedCase(c);
-                            triggerSound('tick');
-                          }}
-                          style={{ left: `${x}px`, top: `${y}px`, width: `${pinSize}px`, height: `${pinSize}px` }}
-                          className={`absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto rounded-full border-2 border-ink flex items-center justify-center stamp-shadow group`}
-                          title={c.title}
-                        >
-                          {/* Pin body */}
-                          <div className={`absolute inset-0 rounded-full ${pinColor} opacity-90 group-hover:scale-105 transition-transform duration-100`}></div>
-                          
-                          {/* Harm score centered (Bricolage font, Section 7.3) */}
-                          <span className="font-display font-bold text-[13px] text-paper relative z-10">
-                            {c.status === 'RESOLVED' ? '✔' : c.harmScore}
-                          </span>
-                        </button>
-                      );
-                    })}
-                </div>
+                <MapComponent 
+                  cases={cases} 
+                  selectedCase={selectedCase} 
+                  onSelectCase={(c) => {
+                    setSelectedCase(c);
+                    triggerSound('tick');
+                  }} 
+                  userLocation={detectedLocation} 
+                  mapFilter={mapFilter} 
+                />
 
                 {/* Map Footer status */}
-                <div className="p-3 bg-paper/95 backdrop-blur border-t border-ink text-center text-[10px] text-chalk font-mono z-10">
-                  NEIGHBORHOOD BOARD · BENGALURU WARD 59 · NO EXACT LOCATIONS UNTIL CONFIRMED
+                <div className="absolute bottom-0 w-full p-2 bg-paper/90 backdrop-blur border-t border-ink text-center text-[10px] text-chalk font-mono z-[1000] pointer-events-none">
+                  NEIGHBORHOOD BOARD · {getLocationPillText() !== "LOCATION NOT SET" ? getLocationPillText().toUpperCase() : "ACTIVE CIVIC AREA"}
                 </div>
-
               </div>
             </div>
 
@@ -2218,7 +2612,7 @@ export default function CivicProofApp() {
               </button>
             </div>
 
-            {/* Step 1: Camera Viewfinder & Presets Capture (Section 7.2 Step 1) */}
+            {/* Step 1: Camera Viewfinder Capture (Section 7.2 Step 1) */}
             {captureStep === 1 && (
               <div className="space-y-4">
                 
@@ -2231,7 +2625,7 @@ export default function CivicProofApp() {
                 {/* Central Viewfinder Area */}
                 <div className="relative h-64 border-2 border-ink bg-ink/5 flex flex-col items-center justify-center overflow-hidden">
                   
-                  {/* If custom photo uploaded, display it, else show fake viewfinder */}
+                  {/* If custom photo uploaded, display it, else show empty viewfinder */}
                   {customPhoto ? (
                     <img src={customPhoto} alt="Captured evidence" className="w-full h-full object-cover" />
                   ) : (
@@ -2309,24 +2703,27 @@ export default function CivicProofApp() {
                     <Mic className="w-4 h-4 text-stamp" /> {
                       voiceStatus === 'recording' ? "Recording… tap to stop" :
                       voiceStatus === 'transcribing' ? "Transcribing voice note…" :
-                      voiceStatus === 'success' ? "Voice note transcribed as evidence." :
-                      voiceStatus === 'empty' ? "No clear speech detected. Try again or type manually." :
-                      voiceStatus === 'error' ? "Voice transcription is unavailable right now." :
+                      voiceStatus === 'success' ? "Voice note transcribed. Tap to re-record." :
+                      voiceStatus === 'empty' ? "Retry voice note" :
+                      voiceStatus === 'error' ? "Retry transcription" :
                       "Vocal Testimony"
                     }
                   </button>
                 </div>
 
                 {/* Display Transcription if recorded */}
-                {voiceNotes && (
+                {(voiceNotes || draftVoiceNotes) && (
                   <div className="border border-ink p-3 bg-tally/5 font-sans text-xs space-y-1">
                     <div className="flex justify-between items-center text-[10px] text-chalk font-semibold uppercase">
                       <span>Vocal Testimony Transcript</span>
-                      <span className="text-tally font-bold">Transcribed</span>
+                      <span className={voiceStatus === 'success' ? "text-tally font-bold" : "text-chalk font-bold"}>
+                        {voiceStatus === 'success' ? 'Transcribed' : voiceStatus === 'error' ? 'Draft - Review Required' : 'Drafting...'}
+                      </span>
                     </div>
                     <textarea
-                      value={voiceNotes}
+                      value={voiceNotes || draftVoiceNotes}
                       onChange={(e) => setVoiceNotes(e.target.value)}
+                      readOnly={voiceStatus === 'recording' || voiceStatus === 'transcribing'}
                       rows={3}
                       className="w-full bg-transparent font-sans text-xs italic text-ink/90 outline-none border border-ink/20 p-1 resize-y focus:border-ink/50"
                     />
@@ -2390,50 +2787,205 @@ export default function CivicProofApp() {
                     onChange={(e) => setIsVulnerableArea(e.target.checked)}
                     className="w-4 h-4 border border-ink outline-none" 
                   />
-                  <span>Located in high vulnerability area (school, hospital, heavy transit)</span>
+                  <span>Near school, hospital, or high-risk zone</span>
                 </label>
-
+                
                 {/* Location Detection Block */}
-                <div className="border border-ink p-3 space-y-2 bg-paper/50">
-                  <div className="flex justify-between items-baseline border-b border-ink/10 pb-1.5">
-                    <span className="font-sans text-xs font-bold uppercase text-chalk tracking-wider">
-                      Location Confidence
-                    </span>
-                    <span className="text-[10px] font-mono font-bold text-stamp">
-                      {getConfidenceLabel(locationAccuracy)} {locationAccuracy ? `(${Math.round(locationAccuracy)}m)` : ''}
+                <div className="border border-ink p-4 space-y-4 bg-paper/50 stamp-shadow">
+                  
+                  {/* Confidence Badge Card */}
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-paper border border-ink p-3 rounded-sm text-left">
+                    <div className="space-y-1">
+                      <span className="font-sans text-[11px] font-bold uppercase text-chalk tracking-wider block">
+                        Location Confidence
+                      </span>
+                      <h4 className="font-display font-bold text-sm text-ink leading-none">
+                        {locationAccuracy === null 
+                          ? "Location not detected" 
+                          : locationAccuracy <= 25 
+                          ? "High confidence location" 
+                          : locationAccuracy <= 75 
+                          ? "Medium confidence" 
+                          : "Approximate location"}
+                      </h4>
+                      <p className="text-[11px] text-chalk font-sans leading-normal">
+                        {locationAccuracy === null 
+                          ? "Type a landmark or address manually." 
+                          : locationAccuracy <= 25 
+                          ? "GPS is close. Add a landmark if needed." 
+                          : locationAccuracy <= 75 
+                          ? "Location is nearby. Add a landmark for better routing." 
+                          : "GPS is approximate. Add a landmark before filing."}
+                      </p>
+                      {locationAccuracy !== null && (
+                        <p className="text-[10px] text-chalk font-mono pt-1">
+                          Accuracy radius: ±{Math.round(locationAccuracy)}m
+                        </p>
+                      )}
+                    </div>
+                    
+                    {/* Right-aligned badge mapping the accuracy */}
+                    <span className={`self-start md:self-center px-2 py-1 text-[10px] font-mono font-bold border uppercase whitespace-nowrap ${
+                      locationAccuracy === null 
+                        ? 'bg-breach/10 text-breach border-breach' 
+                        : locationAccuracy <= 25 
+                        ? 'bg-tally/15 text-tally border-tally' 
+                        : locationAccuracy <= 75 
+                        ? 'bg-ink/5 text-ink border-ink/40' 
+                        : 'bg-stamp/10 text-stamp border-stamp'
+                    }`}>
+                      {getConfidenceLabel(locationAccuracy)}
                     </span>
                   </div>
+
                   {!locationConfirmed ? (
-                    <div className="space-y-2">
-                      <p className="text-[10px] font-sans italic text-ink/80">Confirm this pin before filing. Approximate until confirmed.</p>
-                      <input
-                        type="text"
-                        value={locationName}
-                        onChange={(e) => setLocationName(e.target.value)}
-                        placeholder="Enter nearby landmark or address..."
-                        className="w-full border border-ink p-2 text-xs bg-paper font-sans outline-none focus:ring-1 focus:ring-ink"
-                      />
+                    <div className="space-y-3">
+                      <div className="space-y-1 text-left">
+                        <label className="font-sans text-xs font-bold uppercase text-ink block">
+                          Where is this happening?
+                        </label>
+                        <input
+                          type="text"
+                          value={locationName}
+                          onChange={(e) => handleLocationNameChange(e.target.value)}
+                          onFocus={(e) => {
+                            if (e.target.value === "Location detected nearby — add a landmark" || e.target.value === "Detecting location..." || e.target.value === "Location not detected — add manually") {
+                              setLocationName("");
+                            }
+                          }}
+                          placeholder="Add landmark, street, shop, school gate, metro station…"
+                          className="w-full border border-ink p-3 text-xs bg-paper font-sans outline-none focus:ring-1 focus:ring-ink"
+                        />
+                        
+                        {/* Autocomplete Suggestions Dropdown */}
+                        {placeSuggestions.length > 0 && (
+                          <div className="border border-ink bg-paper divide-y divide-ink/10 max-h-48 overflow-y-auto z-50 relative stamp-shadow">
+                            {placeSuggestions.map((sug) => (
+                              <div
+                                key={sug.placeId}
+                                onClick={() => handleSelectPlaceSuggestion(sug)}
+                                className="p-2.5 hover:bg-ink/[0.04] cursor-pointer text-xs font-sans text-left"
+                              >
+                                <span className="font-bold block text-ink">{sug.mainText || sug.label}</span>
+                                {sug.secondaryText && (
+                                  <span className="text-[10px] text-chalk block">{sug.secondaryText}</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Nudge helper text */}
+                        <div className="flex items-center justify-between pt-1">
+                          <p className="text-[10px] font-sans text-chalk leading-normal italic">
+                            {locationAccuracy === null 
+                              ? "GPS signal is missing. Please enter a nearby landmark manually to file." 
+                              : locationAccuracy > 100 
+                              ? "GPS is approximate. Please add a precise landmark for accurate routing." 
+                              : "GPS is nearby. Confirm or add a landmark (e.g. opposite HDFC Bank)."}
+                          </p>
+                          {(locationSource === 'unknown' || locationName === 'Location detected nearby — add a landmark') && (
+                            <button
+                              type="button"
+                              onClick={detectLocation}
+                              className="text-[9px] uppercase font-bold text-ink underline"
+                            >
+                              Retry Lookup
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Technical location details collapsed link */}
+                      <div className="space-y-2 pt-1 text-left">
+                        <button
+                          type="button"
+                          onClick={() => setShowTechDetails(!showTechDetails)}
+                          className="text-[10px] font-mono font-bold text-stamp hover:underline uppercase flex items-center gap-1 outline-none"
+                        >
+                          {showTechDetails ? "▼ Hide technical location details" : "▶ Show technical location details"}
+                        </button>
+                        
+                        {showTechDetails && (
+                          <div className="bg-paper border border-ink/20 p-2.5 font-mono text-[9px] text-chalk space-y-1 overflow-hidden">
+                            <div>LATITUDE: {detectedLocation?.latitude ?? "N/A"}</div>
+                            <div>LONGITUDE: {detectedLocation?.longitude ?? "N/A"}</div>
+                            <div>ACCURACY METERS: {locationAccuracy !== null ? `${Math.round(locationAccuracy)}m` : "N/A"}</div>
+                            <div>LOCATION CONFIRMED: {locationConfirmed ? "TRUE" : "FALSE"}</div>
+                            <div>SOURCE: {locationSource.toUpperCase()}</div>
+                            {geolocationCapturedAt && <div>CAPTURED AT: {geolocationCapturedAt}</div>}
+                          </div>
+                        )}
+                      </div>
+
                       <button 
                         type="button"
-                        onClick={() => { setLocationConfirmed(true); triggerSound('tick'); }}
-                        className="w-full h-10 border border-ink font-sans text-xs font-bold uppercase bg-paper text-ink hover:bg-ink/[0.04] stamp-shadow active:translate-y-0.5"
+                        onClick={() => { 
+                          if (locationName && locationName.trim() !== "" && locationName !== "Detecting location..." && locationName !== "Detecting address..." && locationName !== "Location not detected. Type a landmark manually." && locationName !== "Location not detected — add manually" && locationName !== "Location detected nearby — add a landmark") {
+                            setLocationConfirmed(true); 
+                            triggerSound('tick'); 
+                            const didUserModify = !locationShortLabel || locationName.trim() !== locationShortLabel.trim();
+                            const newSource = didUserModify ? (detectedLocation ? "gps_plus_manual" : "manual") : (detectedLocation ? "gps" : "manual");
+                            setLocationSource(newSource);
+                            
+                            saveLocationState({
+                              locationConfirmed: true,
+                              locationSource: newSource,
+                              locationName: locationName
+                            });
+                          } else {
+                            triggerToast("Please type a location name or landmark first.", "breach");
+                          }
+                        }}
+                        disabled={!locationName || locationName.trim() === "" || locationName === "Detecting location..." || locationName === "Detecting address..." || locationName === "Location not detected. Type a landmark manually." || locationName === "Location not detected — add manually" || locationName === "Location detected nearby — add a landmark"}
+                        className={`w-full h-10 border border-ink font-sans text-xs font-bold uppercase stamp-shadow active:translate-y-0.5 ${
+                          !locationName || locationName.trim() === "" || locationName === "Detecting location..." || locationName === "Detecting address..." || locationName === "Location not detected. Type a landmark manually." || locationName === "Location not detected — add manually" || locationName === "Location detected nearby — add a landmark"
+                            ? "bg-ink/10 text-chalk cursor-not-allowed border-ink/20 shadow-none"
+                            : "bg-paper text-ink hover:bg-ink/[0.04]"
+                        }`}
                       >
                         Confirm Location
                       </button>
                     </div>
                   ) : (
-                    <div className="flex justify-between items-center bg-tally/10 border border-tally p-2">
-                      <div className="space-y-0.5">
-                        <div className="text-[10px] text-tally font-bold uppercase">Pin confirmed by citizen</div>
-                        <div className="text-xs font-sans font-bold">{locationName}</div>
+                    <div className="space-y-3 text-left">
+                      <div className="flex justify-between items-center bg-tally/10 border border-tally p-3">
+                        <div className="space-y-0.5">
+                          <div className="text-[10px] text-tally font-bold uppercase flex items-center gap-1">
+                            <span>✔</span> Pin confirmed by citizen
+                          </div>
+                          <div className="text-xs font-sans font-bold text-ink">{locationName}</div>
+                        </div>
+                        <button 
+                          type="button"
+                          onClick={() => { setLocationConfirmed(false); triggerSound('tick'); }}
+                          className="text-[10px] text-tally underline font-sans font-bold hover:no-underline"
+                        >
+                          Edit
+                        </button>
                       </div>
-                      <button 
-                        type="button"
-                        onClick={() => { setLocationConfirmed(false); triggerSound('tick'); }}
-                        className="text-[10px] text-tally underline font-sans font-bold hover:no-underline"
-                      >
-                        Edit
-                      </button>
+
+                      {/* Technical location details collapsed link even in confirmed state */}
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowTechDetails(!showTechDetails)}
+                          className="text-[10px] font-mono font-bold text-stamp hover:underline uppercase flex items-center gap-1 outline-none"
+                        >
+                          {showTechDetails ? "▼ Hide technical location details" : "▶ Show technical location details"}
+                        </button>
+                        
+                        {showTechDetails && (
+                          <div className="bg-paper border border-ink/20 p-2.5 font-mono text-[9px] text-chalk space-y-1 overflow-hidden">
+                            <div>LATITUDE: {detectedLocation?.latitude ?? "N/A"}</div>
+                            <div>LONGITUDE: {detectedLocation?.longitude ?? "N/A"}</div>
+                            <div>ACCURACY METERS: {locationAccuracy !== null ? `${Math.round(locationAccuracy)}m` : "N/A"}</div>
+                            <div>LOCATION CONFIRMED: TRUE</div>
+                            <div>SOURCE: {locationSource.toUpperCase()}</div>
+                            {geolocationCapturedAt && <div>CAPTURED AT: {geolocationCapturedAt}</div>}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2441,8 +2993,8 @@ export default function CivicProofApp() {
                 {/* Submit button */}
                 <button 
                   onClick={handleAnalyzeEvidence}
-                  disabled={isAnalyzing || !locationConfirmed || !customPhoto}
-                  className={`w-full h-14 border border-ink font-display font-bold text-lg leading-none uppercase stamp-shadow flex justify-center items-center gap-1 ${isAnalyzing || !locationConfirmed || !customPhoto ? 'bg-ink/50 text-paper/50 cursor-not-allowed' : 'bg-ink text-paper hover:bg-ink/90 active:translate-y-0.5'}`}
+                  disabled={isAnalyzing || !locationConfirmed || !customPhoto || !locationName || locationName.trim() === ""}
+                  className={`w-full h-14 border border-ink font-display font-bold text-lg leading-none uppercase stamp-shadow flex justify-center items-center gap-1 ${isAnalyzing || !locationConfirmed || !customPhoto || !locationName || locationName.trim() === "" ? 'bg-ink/50 text-paper/50 cursor-not-allowed' : 'bg-ink text-paper hover:bg-ink/90 active:translate-y-0.5'}`}
                 >
                   {isAnalyzing ? "Processing Evidence Docket..." : "BUILD EVIDENCE CASE"}
                 </button>
@@ -2458,7 +3010,7 @@ export default function CivicProofApp() {
                 <div className="border border-ink p-3 bg-paper shadow-sm space-y-3">
                   <div className="relative h-60 w-full border border-ink overflow-hidden bg-ink/10">
                     <img 
-                      src={customPhoto || PHOTO_PRESETS[selectedPresetIndex].url} 
+                      src={customPhoto as string} 
                       alt="Polaroid develop"
                       className="w-full h-full object-cover animate-[pulse_1.4s_ease-in-out_infinite]"
                       style={{ animationDuration: '1.4s' }}
@@ -2515,7 +3067,7 @@ export default function CivicProofApp() {
                         onClick={() => handleFinalizeFiling(false)}
                         className="w-full bg-tally text-paper border border-ink py-2.5 font-sans text-xs font-bold hover:bg-tally/90 stamp-shadow"
                       >
-                        ✔ Stand with Priya & merge as Corroboration
+                        ✔ Corroborate case & merge as Corroboration
                       </button>
                       <button 
                         onClick={() => handleFinalizeFiling(true)}
@@ -2564,7 +3116,9 @@ export default function CivicProofApp() {
                     <span className="font-mono text-sm text-ink font-bold my-1">
                       {analysisResult?.id || "CP-2026-X80A1"}
                     </span>
-                    <span className="font-sans text-[10px] text-chalk uppercase font-bold">Indiranagar Ward</span>
+                    <span className="font-sans text-[10px] text-chalk uppercase font-bold">
+                      {locationShortLabel ? `${locationShortLabel}` : "LOCAL CITIZEN WARD"}
+                    </span>
                     <span className="font-mono text-[9px] text-stamp font-bold border border-stamp px-2 py-0.5 mt-2">
                       14:32 IST · PUBLIC RECORD
                     </span>
@@ -2686,7 +3240,9 @@ export default function CivicProofApp() {
 
                 {/* Ward 59 Security Charter Disclaimer Card */}
                 <div className="hidden md:block border border-ink p-4 bg-paper/30 space-y-2 font-sans text-[11px] leading-relaxed text-chalk">
-                  <h5 className="font-display font-bold uppercase text-ink tracking-wide text-xs">Indiranagar Ledger Node</h5>
+                  <h5 className="font-display font-bold uppercase text-ink tracking-wide text-xs">
+                    {getLocationPillText() === "LOCATION NOT SET" ? "Local Ledger Node" : `${getLocationPillText()} Ledger Node`}
+                  </h5>
                   <p>All items in this public ledger are cryptographically synced across neighborhood devices. Every corroborating thud strengthens the case file and prevents municipal silencing.</p>
                 </div>
               </div>
@@ -2694,9 +3250,15 @@ export default function CivicProofApp() {
               {/* RIGHT Column (8 cols) - Stretched list of cases */}
               <div className="md:col-span-8 space-y-4">
                 {cases.length === 0 ? (
-                  <div className="border border-dashed border-ink/20 bg-paper p-6 text-center text-chalk text-xs font-sans">
-                    “No public civic records yet.”
-                  </div>
+                  <EmptyStatePanel
+                    title="No public civic records yet."
+                    message="Filed and corroborated cases will appear in the public ledger."
+                    actionText="File the first case"
+                    onAction={() => {
+                      setActiveTab('report');
+                      setCaptureStep(1);
+                    }}
+                  />
                 ) : (
                   cases
                     .filter(item => {
@@ -2768,16 +3330,17 @@ export default function CivicProofApp() {
                     })
                 )}
 
-                {cases.filter(item => {
+                {cases.length > 0 && cases.filter(item => {
                   if (mapFilter === 'active') return item.status !== 'RESOLVED';
                   if (mapFilter === 'resolved') return item.status === 'RESOLVED';
                   if (mapFilter === 'breached') return item.status === 'BREACHED';
                   if (mapFilter === 'mine') return item.corroborations.some(co => co.contributorName === "You" || co.contributorName === "You (Original Reporter)");
                   return true;
                 }).length === 0 && (
-                  <div className="text-center py-12 border border-dashed border-ink/20 font-sans text-xs text-chalk p-6 bg-paper">
-                    &ldquo;Nothing reported on your street yet. You&apos;d be the first.&rdquo;
-                  </div>
+                  <EmptyStatePanel
+                    title="No matching cases"
+                    message="No public cases match your current active filter."
+                  />
                 )}
               </div>
 
@@ -2798,7 +3361,11 @@ export default function CivicProofApp() {
                   Citizen Roll Call
                 </h3>
                 <p className="font-sans text-xs text-chalk">
-                  &ldquo;You&apos;ve been a CivicProof citizen for 47 days.&rdquo;
+                  {cases.length > 0 ? (
+                    `Active citizen ledger monitoring ${cases.length} cases.`
+                  ) : (
+                    "Welcome to CivicProof. Your local civic ledger is active."
+                  )}
                 </p>
               </div>
 
@@ -2859,11 +3426,20 @@ export default function CivicProofApp() {
                   <h5 className="font-display font-bold uppercase tracking-wide text-ink">Citizenship Ledger</h5>
                   <div className="flex justify-between items-baseline border-b border-ink/10 pb-1.5">
                     <span className="text-chalk text-[10px] font-mono">STATUS:</span>
-                    <span className="font-bold text-tally">ANONYMOUS REPORTER</span>
+                    <span className="font-bold text-tally">ACTIVE REPORTER</span>
                   </div>
                   <div className="flex justify-between items-baseline border-b border-ink/10 pb-1.5">
                     <span className="text-chalk text-[10px] font-mono">NEIGHBORHOOD:</span>
-                    <span className="font-bold text-stamp">BLR (AUTO-DETECTED)</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-stamp">{getProfileLocationText()}</span>
+                      <button 
+                        onClick={handleUpdateLocation}
+                        className="text-chalk hover:text-ink transition-colors"
+                        title="Update Location"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                   <div className="flex justify-between items-baseline">
                     <span className="text-chalk text-[10px] font-mono">PRIVACY:</span>
@@ -2906,8 +3482,9 @@ export default function CivicProofApp() {
                       ))}
 
                     {cases.filter(c => c.corroborations.some(corr => corr.contributorName.startsWith("You"))).length === 0 && (
-                      <div className="p-4 text-center text-chalk text-xs">
-                        Your civic record is empty. File or corroborate your first case.
+                      <div className="p-6 text-center text-chalk text-xs space-y-1">
+                        <p className="font-bold text-ink">Your civic record is empty.</p>
+                        <p className="text-[11px]">File or corroborate your first case to begin your contribution journal.</p>
                       </div>
                     )}
                   </div>
@@ -2991,6 +3568,157 @@ export default function CivicProofApp() {
 
           </div>
         </div>
+      {/* Strengthen Photo Modal */}
+      {isPhotoModalOpen && selectedCase && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-paper/90 backdrop-blur-sm p-4">
+          <div className="bg-paper border-2 border-ink max-w-sm w-full p-6 stamp-shadow relative">
+            <button onClick={() => { setIsPhotoModalOpen(false); setStrengthenPhoto(null); setStrengthenCaption(""); }} className="absolute top-4 right-4 text-ink hover:text-stamp">
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="font-display font-bold text-lg text-ink mb-2">Add Photo Proof</h3>
+            <p className="font-sans text-xs text-chalk mb-4">Upload another angle or current state of the issue.</p>
+            
+            <div className="space-y-4">
+              <div className="border border-dashed border-ink/40 p-4 flex items-center justify-center bg-chalk/5">
+                {strengthenPhoto ? (
+                  <img src={strengthenPhoto} alt="Proof" className="max-h-48 object-contain mix-blend-multiply" />
+                ) : (
+                  <label className="flex flex-col items-center gap-2 text-ink hover:text-stamp cursor-pointer">
+                    <Upload className="w-6 h-6" />
+                    <span className="font-sans text-xs font-semibold uppercase tracking-wider">Tap to upload</span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      className="hidden" 
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (event) => setStrengthenPhoto(event.target?.result as string);
+                          reader.readAsDataURL(file);
+                        }
+                      }} 
+                    />
+                  </label>
+                )}
+              </div>
+              
+              <div className="space-y-1">
+                <label className="font-sans text-xs font-bold text-ink uppercase tracking-wider block">Caption (Optional)</label>
+                <input 
+                  type="text" 
+                  value={strengthenCaption}
+                  onChange={(e) => setStrengthenCaption(e.target.value)}
+                  placeholder="What does this angle show?"
+                  className="w-full border-b-2 border-ink bg-transparent py-2 font-mono text-sm focus:outline-none focus:border-stamp placeholder:text-chalk/50"
+                />
+              </div>
+
+              <button 
+                onClick={() => handleSubmitPhotoProof(selectedCase.id)}
+                disabled={!strengthenPhoto || isSubmittingStrengthen}
+                className="w-full bg-stamp text-paper py-3 font-sans font-bold text-sm uppercase tracking-widest hover:bg-stamp/90 disabled:opacity-50 mt-4 stamp-shadow disabled:shadow-none"
+              >
+                {isSubmittingStrengthen ? "Uploading..." : "Add Photo Proof"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Strengthen Impact Modal */}
+      {isImpactModalOpen && selectedCase && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-paper/90 backdrop-blur-sm p-4">
+          <div className="bg-paper border-2 border-ink max-w-sm w-full p-6 stamp-shadow relative">
+            <button onClick={() => { setIsImpactModalOpen(false); setStrengthenImpactNote(""); setStrengthenImpactChips([]); }} className="absolute top-4 right-4 text-ink hover:text-tally">
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="font-display font-bold text-lg text-ink mb-2">Add Impact Note</h3>
+            <p className="font-sans text-xs text-chalk mb-4">Explain who is affected, and how?</p>
+            
+            <div className="space-y-4">
+              <textarea 
+                value={strengthenImpactNote}
+                onChange={(e) => setStrengthenImpactNote(e.target.value)}
+                placeholder="Example: Children pass here every morning, and the footpath is blocked."
+                className="w-full border border-ink bg-chalk/5 p-3 font-mono text-sm focus:outline-none focus:border-tally min-h-[100px] resize-none"
+              />
+
+              <div className="space-y-2">
+                <span className="font-sans text-[10px] font-bold text-ink uppercase tracking-wider block">Quick Tags</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {IMPACT_CHIP_OPTIONS.map(chip => (
+                    <button
+                      key={chip}
+                      onClick={() => handleToggleImpactChip(chip)}
+                      className={`font-sans text-[10px] px-2 py-1 border ${
+                        strengthenImpactChips.includes(chip) 
+                          ? 'bg-tally text-paper border-tally font-bold' 
+                          : 'bg-paper text-ink border-ink hover:bg-ink/[0.04]'
+                      }`}
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button 
+                onClick={() => handleSubmitImpactNote(selectedCase.id)}
+                disabled={(strengthenImpactNote.length < 10 && strengthenImpactChips.length === 0) || isSubmittingStrengthen}
+                className="w-full bg-tally text-paper py-3 font-sans font-bold text-sm uppercase tracking-widest hover:bg-tally/90 disabled:opacity-50 mt-4 stamp-shadow disabled:shadow-none"
+              >
+                {isSubmittingStrengthen ? "Saving..." : "Add Impact Note"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Active Modal */}
+      {isActiveModalOpen && selectedCase && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-paper/90 backdrop-blur-sm p-4">
+          <div className="bg-paper border-2 border-ink max-w-sm w-full p-6 stamp-shadow relative">
+            <button onClick={() => { setIsActiveModalOpen(false); setStrengthenActiveNote(""); setStrengthenActiveChecked(false); }} className="absolute top-4 right-4 text-ink hover:text-ink/70">
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="font-display font-bold text-lg text-ink mb-2">Confirm still active?</h3>
+            <p className="font-sans text-xs text-chalk mb-4">Only confirm if you saw this issue today or right now.</p>
+            
+            <div className="space-y-4">
+              <label className="flex items-start gap-3 p-3 border border-ink bg-chalk/5 cursor-pointer hover:bg-ink/[0.04]">
+                <input 
+                  type="checkbox" 
+                  checked={strengthenActiveChecked}
+                  onChange={(e) => setStrengthenActiveChecked(e.target.checked)}
+                  className="mt-1 accent-ink w-4 h-4"
+                />
+                <span className="font-sans text-sm font-semibold text-ink">I confirm this issue is still present.</span>
+              </label>
+
+              <div className="space-y-1 mt-3">
+                <label className="font-sans text-xs font-bold text-ink uppercase tracking-wider block">Add what you saw today (Optional)</label>
+                <input 
+                  type="text" 
+                  value={strengthenActiveNote}
+                  onChange={(e) => setStrengthenActiveNote(e.target.value)}
+                  placeholder="e.g. Water is still leaking"
+                  className="w-full border-b-2 border-ink bg-transparent py-2 font-mono text-sm focus:outline-none focus:border-ink placeholder:text-chalk/50"
+                />
+              </div>
+
+              <button 
+                onClick={() => handleSubmitActiveConfirmation(selectedCase.id)}
+                disabled={!strengthenActiveChecked || isSubmittingStrengthen}
+                className="w-full bg-ink text-paper py-3 font-sans font-bold text-sm uppercase tracking-widest hover:bg-ink/90 disabled:opacity-50 mt-4 stamp-shadow disabled:shadow-none"
+              >
+                {isSubmittingStrengthen ? "Confirming..." : "Confirm Still Active"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       </div>
 
     </div>

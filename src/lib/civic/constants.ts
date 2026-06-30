@@ -26,23 +26,23 @@ export const DEFAULT_SLAS: Record<IssueCategory, number> = {
 
 export const DEPARTMENTS: Record<IssueCategory, { id: string; name: string; escalationLabel: string }> = {
   road_damage: {
-    id: "BBMP_ROAD_INFRA",
-    name: "Bruhat Bengaluru Mahanagara Palike (BBMP) - Road Infrastructure Dept",
+    id: "MUNICIPAL_ROAD_INFRA",
+    name: "Municipal Road Infrastructure Department",
     escalationLabel: "Chief Engineer (Road Infrastructure)",
   },
   waste_management: {
-    id: "BBMP_SWM",
-    name: "BBMP Solid Waste Management Division",
+    id: "MUNICIPAL_SWM",
+    name: "Municipal Solid Waste Management Division",
     escalationLabel: "Joint Commissioner (Solid Waste Management)",
   },
   streetlight: {
-    id: "BBMP_STREETLIGHTS",
-    name: "BBMP Electrical Department (Street Lighting Cell)",
+    id: "MUNICIPAL_STREETLIGHTS",
+    name: "Municipal Electrical Department (Street Lighting Cell)",
     escalationLabel: "Superintending Engineer (Electrical)",
   },
   water_leakage: {
-    id: "BWSSB_WATER_SUPPLY",
-    name: "Bangalore Water Supply and Sewerage Board (BWSSB)",
+    id: "MUNICIPAL_WATER_SUPPLY",
+    name: "Municipal Water Supply and Sewerage Board",
     escalationLabel: "Chief Engineer (Maintenance & Sewerage)",
   },
 };

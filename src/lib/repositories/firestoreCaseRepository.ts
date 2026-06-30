@@ -116,7 +116,7 @@ export class FirestoreCaseRepository implements CaseRepository {
       const docRef = db.collection(COLLECTION_NAME).doc(id);
       
       const serializedPatch = caseToFirestore(patch as CivicIssue);
-      await docRef.update(serializedPatch);
+      await docRef.set(serializedPatch, { merge: true });
 
       // Fetch the updated document
       const updatedDoc = await docRef.get();
@@ -173,7 +173,7 @@ export class FirestoreCaseRepository implements CaseRepository {
         };
 
         const serializedPatch = caseToFirestore(patch as CivicIssue);
-        transaction.update(docRef, serializedPatch);
+        transaction.set(docRef, serializedPatch, { merge: true });
 
         updatedCase = {
           ...issue,
@@ -219,7 +219,7 @@ export class FirestoreCaseRepository implements CaseRepository {
         };
 
         const serializedPatch = caseToFirestore(patch as CivicIssue);
-        transaction.update(docRef, serializedPatch);
+        transaction.set(docRef, serializedPatch, { merge: true });
 
         updatedCase = {
           ...issue,

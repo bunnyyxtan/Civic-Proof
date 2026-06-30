@@ -19,8 +19,8 @@ export async function POST(req: NextRequest) {
       caseId,
       title,
       category || "pothole_road_damage",
-      department || "BBMP Municipal Ward",
-      gpsString || "Indiranagar, Bengaluru",
+      department || "Municipal Ward",
+      gpsString || "Confirmed Location",
       elapsedDays || 7,
       analysisText || "Severe unaddressed public safety hazard.",
       corroborationCount || 1

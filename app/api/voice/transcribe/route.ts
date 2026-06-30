@@ -1,49 +1,70 @@
 // app/api/voice/transcribe/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getGeminiClient } from "@/src/lib/ai/geminiClient";
-import { shouldUseGemini } from "@/src/lib/ai/modelConfig";
+import { shouldUseGemini, getGeminiApiKey, getMultimodalModelName } from "@/src/lib/ai/modelConfig";
 import { Type } from "@google/genai";
+import { AI_TIMEOUTS } from "@/src/lib/ai/aiTimeouts";
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  const startTime = Date.now();
+  let failureReason = "";
+  let failureCode = "";
+  let mimeTypeUsed = "";
+  let audioBytesApprox = 0;
+
   try {
     const body = await req.json();
     const { audioDataUrl, mimeType, voiceMode } = body;
 
-    if (!audioDataUrl) {
+    mimeTypeUsed = mimeType || "audio/webm";
+    audioBytesApprox = audioDataUrl ? audioDataUrl.length : 0;
+
+    const diagnostics = {
+      hasGeminiKey: !!getGeminiApiKey(),
+      mimeType: mimeTypeUsed,
+      audioBytesApprox,
+      provider: "gemini",
+      model: getMultimodalModelName(),
+      latencyMs: 0,
+      timeoutUsed: AI_TIMEOUTS.transcription,
+      fallbackUsed: false,
+      failureReason: "",
+      failureCode: ""
+    };
+
+    if (!audioDataUrl || audioBytesApprox < 200) {
+      diagnostics.latencyMs = Date.now() - startTime;
       return NextResponse.json({
         ok: false,
         error: {
           code: "TRANSCRIPTION_ERROR",
-          message: "No audio data provided."
-        }
+          message: "No clear audio data provided."
+        },
+        ...(process.env.NODE_ENV === "development" ? { diagnostics } : {})
       }, { status: 400 });
     }
 
-    // Check if Gemini is enabled and available
     if (!shouldUseGemini()) {
+      diagnostics.provider = "none";
+      diagnostics.hasGeminiKey = false;
+      diagnostics.latencyMs = Date.now() - startTime;
       return NextResponse.json({
         ok: false,
         error: {
-          code: "TRANSCRIPTION_ERROR",
-          message: "Voice transcription is unavailable right now. Type your note manually and continue."
-        }
+          code: "TRANSCRIPTION_UNAVAILABLE",
+          message: "Voice transcription is unavailable right now. Type your note manually or retry."
+        },
+        ...(process.env.NODE_ENV === "development" ? { diagnostics } : {})
       }, { status: 503 });
     }
 
-    // Extract base64 data
     const parts = audioDataUrl.split(",");
     const base64Data = parts[1] || parts[0];
 
-    // Clean mimeType: some browsers might record as audio/webm;codecs=opus
-    // Keep it as standard as possible or pass it directly
-    const finalMimeType = mimeType || "audio/webm";
-
-    // Lazy initialize Gemini client
     const ai = getGeminiClient();
 
-    // Prepare system instructions based on rules
     const systemInstruction = `You are an expert high-fidelity speech-to-text transcriber specializing in civic safety issues and local Indian contexts.
 Your ONLY task is to transcribe the spoken words in the provided audio file.
 Do NOT analyze the issue. Do NOT summarize. Do NOT generate a complaint or add any text not spoken in the audio.
@@ -57,40 +78,63 @@ Dialect/Language Guidelines:
 Silence/Noise rule:
 If the audio contains only silence, background noise, breathing, static, or no clear human speech, you must return an empty transcript "" and set emptySpeechDetected to true.`;
 
-    const userPrompt = `Voice Mode: ${voiceMode}. Transcribe the attached audio file.`;
+    const userPrompt = `Voice Mode: ${voiceMode || "mixed-IN"}. Transcribe this citizen voice note only. Do not summarize. Do not analyze the civic issue. Preserve the spoken language. If no clear speech exists, return empty transcript.`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: [
-        {
-          inlineData: {
-            mimeType: finalMimeType,
-            data: base64Data
-          }
-        },
-        {
-          text: userPrompt
-        }
-      ],
-      config: {
-        systemInstruction: systemInstruction,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            transcript: {
-              type: Type.STRING,
-              description: "The transcription of the spoken words in the audio. Empty string if no human speech is detected.",
-            },
-            emptySpeechDetected: {
-              type: Type.BOOLEAN,
-              description: "True if the audio is silent, background noise, or no clear spoken words are present.",
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), AI_TIMEOUTS.transcription);
+
+    let response;
+    try {
+      response = await ai.models.generateContent({
+        model: getMultimodalModelName(),
+        contents: [
+          {
+            inlineData: {
+              mimeType: mimeTypeUsed,
+              data: base64Data
             }
           },
-          required: ["transcript", "emptySpeechDetected"]
+          {
+            text: userPrompt
+          }
+        ],
+        config: {
+          systemInstruction: systemInstruction,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              transcript: {
+                type: Type.STRING,
+                description: "The transcription of the spoken words in the audio. Empty string if no human speech is detected.",
+              },
+              emptySpeechDetected: {
+                type: Type.BOOLEAN,
+                description: "True if the audio is silent, background noise, or no clear spoken words are present.",
+              },
+              languageMode: {
+                type: Type.STRING,
+                description: "The detected language mode.",
+                enum: ["hi-IN", "en-IN", "mixed-IN", "unknown"]
+              },
+              confidence: {
+                type: Type.STRING,
+                description: "Confidence in the transcription.",
+                enum: ["low", "medium", "high"]
+              }
+            },
+            required: ["transcript", "emptySpeechDetected"]
+          }
         }
+      });
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        throw new Error("AI Timeout");
       }
-    });
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     const responseText = response.text;
     if (!responseText) {
@@ -101,16 +145,23 @@ If the audio contains only silence, background noise, breathing, static, or no c
     const transcript = (parsed.transcript || "").trim();
     const emptySpeechDetected = !!parsed.emptySpeechDetected || transcript === "";
 
+    diagnostics.latencyMs = Date.now() - startTime;
+
+    if (process.env.NODE_ENV === "development") {
+      (NextResponse as any).diagnostics = diagnostics;
+    }
+
     if (emptySpeechDetected) {
       return NextResponse.json({
         ok: true,
         data: {
           transcript: "",
           voiceMode: voiceMode,
-          provider: "none",
+          provider: "gemini",
           emptySpeechDetected: true,
           message: "No clear speech detected. Try again or type manually."
-        }
+        },
+        ...(process.env.NODE_ENV === "development" ? { diagnostics } : {})
       });
     }
 
@@ -121,17 +172,40 @@ If the audio contains only silence, background noise, breathing, static, or no c
         voiceMode: voiceMode,
         provider: "gemini",
         emptySpeechDetected: false
-      }
+      },
+      ...(process.env.NODE_ENV === "development" ? { diagnostics } : {})
     });
 
   } catch (error: any) {
     console.error("Transcription endpoint error:", error);
+    failureReason = error.message || "Unknown error";
+    failureCode = "TRANSCRIPTION_ERROR";
+    
+    if (failureReason === "AI Timeout") {
+      failureCode = "AI_TIMEOUT";
+      failureReason = "Transcription took too long.";
+    }
+
+    const diagnostics = {
+      hasGeminiKey: !!getGeminiApiKey(),
+      mimeType: mimeTypeUsed,
+      audioBytesApprox,
+      provider: "gemini",
+      model: getMultimodalModelName(),
+      latencyMs: Date.now() - startTime,
+      timeoutUsed: AI_TIMEOUTS.transcription,
+      fallbackUsed: true,
+      failureReason,
+      failureCode
+    };
+
     return NextResponse.json({
       ok: false,
       error: {
-        code: "TRANSCRIPTION_ERROR",
-        message: "Could not transcribe the voice note. Please type the note manually or try again."
-      }
+        code: failureCode,
+        message: "Voice transcription is unavailable. Type your note manually or retry."
+      },
+      ...(process.env.NODE_ENV === "development" ? { diagnostics } : {})
     }, { status: 500 });
   }
 }

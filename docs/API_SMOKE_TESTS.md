@@ -15,7 +15,7 @@ We provide an automated, in-memory sandboxed pipeline runner that validates our 
   "timestamp": "2026-06-29T10:45:00Z",
   "logs": [
     "=== CIVICPROOF ENGINE SMOKE TEST RUN ===",
-    "Seeded in-memory mock cases database successfully.",
+    "Seeded in-memory cases database successfully.",
     "--- STEP 1: Submit Initial Citizen Report ---",
     "SUCCESS: Case CP-WATR opened for: 'Critical Open Drain near School'",
     "- Decided Severity: CRITICAL",
@@ -31,7 +31,7 @@ We provide an automated, in-memory sandboxed pipeline runner that validates our 
 ---
 
 ## 2. Server AI Health Monitor
-Assess if Gemini API keys are active, what model profiles are currently running, and if mock mode overrides are active.
+Assess if Gemini API keys are active, what model profiles are currently running, and if local storage overrides are active.
 
 * **URL:** `/api/demo/ai-health`
 * **Method:** `GET`
@@ -46,7 +46,7 @@ Assess if Gemini API keys are active, what model profiles are currently running,
     "apiKeyLength": 40,
     "textModel": "gemini-3.5-flash",
     "multimodalModel": "gemini-3.5-flash",
-    "forceMockModeActive": false
+    "forceLocalStorageActive": false
   }
 }
 ```

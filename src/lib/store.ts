@@ -3,13 +3,60 @@
 
 import { CivicCase, calculateHarmScore, routeToDepartment, generateCaseId, checkSilenceClockBreach } from "./civic/engine";
 import { CivicIssue } from "./civic/types";
+import { getCitizenIdToken } from "./auth/authClient";
 
 const STORAGE_KEY = "civicproof_cases_v2";
 
 const INITIAL_EMPTY_CASES: CivicCase[] = [];
 
+function performLegacyLocalStorageCleanup() {
+  if (typeof window === "undefined") return;
+  try {
+    const keysToRemove = [
+      "mock",
+      "demo",
+      "seed",
+      "ledger",
+      "defaultCases",
+      "civicproof-cases",
+      "cases",
+      "civicproof_cases"
+    ];
+    
+    // 1. Remove specific legacy keys
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key) {
+        const lowerKey = key.toLowerCase();
+        const isAuthKey = key.includes("firebase:") || key.includes("firebase-") || key.includes("g_state") || key.includes("authToken");
+        if (!isAuthKey && keysToRemove.some(k => lowerKey.includes(k.toLowerCase()))) {
+          localStorage.removeItem(key);
+        }
+      }
+    }
+
+    // 2. Check current STORAGE_KEY content for fake data titles
+    const currentSaved = localStorage.getItem(STORAGE_KEY);
+    if (currentSaved) {
+      const lowerSaved = currentSaved.toLowerCase();
+      const hasFakeData = ["bescom", "blackwater", "indiranagar", "cmh road", "severe crater", "priya", "pothole", "dangling", "garbage", "waste"].some(title => 
+        lowerSaved.includes(title)
+      );
+      if (hasFakeData) {
+        console.warn("Legacy cached mock cases found in localStorage. Purging to ensure clean production slate.");
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    }
+  } catch (err) {
+    console.error("Failed to perform legacy local storage cleanup:", err);
+  }
+}
+
 export function loadCases(): CivicCase[] {
   if (typeof window === "undefined") return INITIAL_EMPTY_CASES;
+  
+  // Clean up legacy mock data
+  performLegacyLocalStorageCleanup();
   
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -51,17 +98,29 @@ export function saveCases(cases: CivicCase[]) {
 
     // Background asynchronous database synchronization
     if (Array.isArray(cases) && cases.length > 0) {
-      // Synchronize the top 5 most recently active cases to keep Firestore light and fast
-      const syncTargets = cases.slice(0, 5);
-      for (const c of syncTargets) {
-        fetch("/api/cases", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ case: c })
-        }).catch(err => {
-          console.warn(`Background database synchronization failed for case ${c.id}:`, err);
+      // Fetch token asynchronously and then fire sync requests
+      getCitizenIdToken()
+        .then((token) => {
+          // Synchronize the top 5 most recently active cases to keep Firestore light and fast
+          const syncTargets = cases.slice(0, 5);
+          for (const c of syncTargets) {
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (token) {
+              headers["Authorization"] = `Bearer ${token}`;
+            }
+
+            fetch("/api/cases", {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ case: c })
+            }).catch(err => {
+              console.warn(`Background database synchronization failed for case ${c.id}:`, err);
+            });
+          }
+        })
+        .catch((err) => {
+          console.warn("Failed to get citizen auth token for background sync:", err);
         });
-      }
     }
   } catch (err) {
     console.error("Failed to save cases to local storage:", err);
@@ -128,7 +187,19 @@ export function mapIssueToCase(issue: CivicIssue): CivicCase {
       latitude: issue.latitude,
       longitude: issue.longitude,
       address: issue.locationName,
+      accuracyMeters: issue.locationAccuracyMeters,
+      confirmedByUser: issue.locationConfirmedByUser,
     },
+    locationAccuracyMeters: issue.locationAccuracyMeters,
+    locationConfirmedByUser: issue.locationConfirmedByUser,
+    locationSource: issue.locationSource,
+    locationShortLabel: issue.locationShortLabel,
+    formattedAddress: issue.formattedAddress,
+    locality: issue.locality,
+    city: issue.city,
+    state: issue.state,
+    country: issue.country,
+    geolocationCapturedAt: issue.geolocationCapturedAt,
     photoUrl: issue.evidence.photoUrl || "",
     filedAt: issue.reportedAt,
     status: mappedStatus,
@@ -212,6 +283,16 @@ export function mapCaseToIssue(c: CivicCase): CivicIssue {
     locationName: c.gps.address || "Reported Location",
     latitude: c.gps.latitude ?? 0,
     longitude: c.gps.longitude ?? 0,
+    locationAccuracyMeters: c.locationAccuracyMeters ?? c.gps.accuracyMeters,
+    locationConfirmedByUser: c.locationConfirmedByUser ?? c.gps.confirmedByUser,
+    locationSource: c.locationSource,
+    locationShortLabel: c.locationShortLabel,
+    formattedAddress: c.formattedAddress,
+    locality: c.locality,
+    city: c.city,
+    state: c.state,
+    country: c.country,
+    geolocationCapturedAt: c.geolocationCapturedAt,
     reportedAt: c.filedAt,
     lastMeaningfulActionAt: c.filedAt,
     slaDays: c.category === "Power Line Danger" ? 3 : 7,

@@ -1,0 +1,48 @@
+{
+  "entities": {
+    "CivicCase": {
+      "title": "Civic Case",
+      "description": "An evidence-backed civic case file representing a community issue.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the case" },
+        "category": { "type": "string", "description": "Category of the civic issue" },
+        "severity": { "type": "string", "description": "Severity of the issue" },
+        "reportedAt": { "type": "string", "format": "date-time", "description": "ISO timestamp of when it was reported" },
+        "status": { "type": "string", "description": "Current status of the case" },
+        "harmScore": { "type": "number", "description": "Calculated harm score" }
+      },
+      "required": ["id", "category", "severity", "reportedAt", "status", "harmScore"]
+    },
+    "AuditEvent": {
+      "title": "Audit Event",
+      "description": "Audit and timeline events for civic actions.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "type": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "type", "description"]
+    }
+  },
+  "firestore": {
+    "/civicproof_cases/{caseId}": {
+      "schema": "CivicCase",
+      "description": "Primary collection storing all verified citizen reports and cases."
+    },
+    "/civicproof_events/{eventId}": {
+      "schema": "AuditEvent",
+      "description": "Collection storing security logs and audit events."
+    },
+    "/civicproof_rate_limits/{limitId}": {
+      "schema": "object",
+      "description": "Temporary collections for rate-limiting calculations."
+    },
+    "/civicproof_dead_letters/{letterId}": {
+      "schema": "object",
+      "description": "Dead letter queue for failed transactions or notifications."
+    }
+  }
+}

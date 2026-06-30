@@ -302,65 +302,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  try {
-    const url = new URL(req.url);
-    const body = await req.json().catch(() => ({}));
-    const allowSeed = url.searchParams.get("allow_seed_emergency") === "true" || body.allow_seed_emergency === true;
-
-    if (!allowSeed) {
-      return NextResponse.json({
-        ok: false,
-        error: {
-          code: "DEMO_SEEDING_DISABLED_BY_DEFAULT",
-          message: "Demo seeding is disabled for the normal app. Use /demo for judge story mode."
-        }
-      }, { status: 403 });
-    }
-
-    const repository = getCaseRepository();
-    const meta = getPersistenceMetadata();
-    const repoType = meta.persistence.includes("firestore") ? "firestore" : "mock";
-    const { overwrite = false } = body;
-
-    const existing = await repository.listCases();
-    if (existing.length > 0 && !overwrite) {
-      return NextResponse.json({
-        ok: true,
-        data: {
-          repository: repoType,
-          seededCount: 0,
-          existingCount: existing.length,
-          message: "Database already contains records. Seeding skipped. Set { overwrite: true } to clear and overwrite.",
-        }
-      });
-    }
-
-    // Write issues sequentially
-    const createdIssues: CivicIssue[] = [];
-    for (const issue of SEED_ISSUES) {
-      const issueWithOrigin = { ...issue, dataOrigin: "judge_demo" as const };
-      const created = await repository.createCase(issueWithOrigin);
-      createdIssues.push(created);
-    }
-
-    return NextResponse.json({
-      ok: true,
-      success: true,
-      data: {
-        repository: repoType,
-        seededCount: createdIssues.length,
-        existingCount: existing.length,
-        message: `Database seeded successfully with ${createdIssues.length} case documents!`,
-      }
-    });
-  } catch (err: any) {
-    console.error("POST /api/demo/seed-cases failed:", err);
-    return NextResponse.json(
-      {
-        ok: false,
-        error: err.message || "Failed to seed default database files.",
-      },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json({
+    success: false,
+    error: "Demo seeding is disabled for the normal app to preserve production integrity."
+  }, { status: 403 });
 }

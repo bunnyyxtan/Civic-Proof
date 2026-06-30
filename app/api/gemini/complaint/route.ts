@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
       title,
       category || "pothole_road_damage",
       department || "BBMP Municipal Ward",
-      gpsString || "Indiranagar, Bengaluru",
+      gpsString || "Confirmed Location",
       elapsedDays || 0,
       analysisText || "Visual and structural civic defect."
     );
